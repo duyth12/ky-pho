@@ -2,18 +2,84 @@ const START_FEN = 'rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w
 const glyphs = { r:'車', n:'馬', b:'象', a:'士', k:'將', c:'砲', p:'卒', R:'俥', N:'傌', B:'相', A:'仕', K:'帥', C:'炮', P:'兵' };
 const pieceNames = { r:'Xe', n:'Mã', b:'Tượng', a:'Sĩ', k:'Tướng', c:'Pháo', p:'Tốt' };
 const modeCopy = {
-  moves: ['GỢI Ý NƯỚC ĐI', 'Các nước đã biết từ kho CDB', 'queryall'],
-  score: ['ĐIỂM THẾ CỜ', 'Điểm đánh giá do CDB trả về', 'queryscore'],
-  line: ['BIẾN PHÂN TÍCH', 'Đường biến chính do CDB ghi nhận', 'querypv']
+  engine: ['PHÂN TÍCH TRỰC TIẾP', 'Engine gợi ý nước đi', null],
+  moves: ['DỮ LIỆU KHAI CUỘC', 'Các nước đã biết từ kho CDB', 'queryall'],
+  score: ['ĐIỂM KHO CDB', 'Điểm đánh giá do CDB trả về', 'queryscore'],
+  line: ['BIẾN KHO CDB', 'Đường biến do CDB ghi nhận', 'querypv']
 };
-let mode = 'moves';
+let mode = 'engine';
 let flipped = false;
 let position = { ranks: [], turn: 'w' };
 let selectedSquare = null;
 let selectedMoves = [];
 let moveHistory = [];
 let gameOver = false;
+let analysisSuggestion = null;
+let enginePromise = null;
+let engineInstance = null;
+let engineReady = false;
 const $ = (selector) => document.querySelector(selector);
+
+const ENGINE_VERSION = '1.1.12';
+const ENGINE_BASE = `https://cdn.jsdelivr.net/npm/fairy-stockfish-nnue.wasm@${ENGINE_VERSION}`;
+
+function loadEngineScript() {
+  if (window.Stockfish) return Promise.resolve();
+  if (enginePromise) return enginePromise;
+  enginePromise = new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = `${ENGINE_BASE}/stockfish.js`;
+    script.crossOrigin = 'anonymous';
+    script.onload = resolve;
+    script.onerror = () => reject(new Error('Không tải được engine. Hãy kiểm tra kết nối mạng hoặc thử lại.'));
+    document.head.append(script);
+  }).catch((error) => { enginePromise = null; throw error; });
+  return enginePromise;
+}
+
+function waitForEngineLine(engine, predicate, timeoutMs = 30000) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      engine.removeMessageListener(listener);
+      reject(new Error('Engine phản hồi quá lâu. Hãy thử phân tích lại.'));
+    }, timeoutMs);
+    const listener = (line) => {
+      if (!predicate(line)) return;
+      clearTimeout(timer);
+      engine.removeMessageListener(listener);
+      resolve(line);
+    };
+    engine.addMessageListener(listener);
+  });
+}
+
+async function getEngine() {
+  if (engineInstance && engineReady) return engineInstance;
+  $('#engineStatus').textContent = 'Đang tải Fairy-Stockfish…';
+  if (typeof SharedArrayBuffer !== 'function' || !window.crossOriginIsolated) {
+    throw new Error('Trình duyệt chưa bật chế độ bộ nhớ cần cho engine. Hãy khởi động lại server rồi mở bằng http://localhost:3000.');
+  }
+  await loadEngineScript();
+  if (!engineInstance) {
+    const response = await fetch(`${ENGINE_BASE}/stockfish.wasm`);
+    if (!response.ok) throw new Error('Không tải được tệp engine WebAssembly.');
+    engineInstance = await window.Stockfish({ wasmBinary: await response.arrayBuffer() });
+    engineInstance.addMessageListener((line) => {
+      if (line === 'uciok') engineReady = true;
+    });
+    const ready = waitForEngineLine(engineInstance, (line) => line === 'uciok');
+    engineInstance.postMessage('uci');
+    await ready;
+    const optionsReady = waitForEngineLine(engineInstance, (line) => line === 'readyok');
+    engineInstance.postMessage('setoption name UCI_Variant value xiangqi');
+    engineInstance.postMessage('setoption name Threads value 1');
+    engineInstance.postMessage('setoption name MultiPV value 3');
+    engineInstance.postMessage('isready');
+    await optionsReady;
+  }
+  $('#engineStatus').textContent = 'Sẵn sàng · chạy trên máy bạn';
+  return engineInstance;
+}
 
 function parseFen(fen) {
   const [placement, turn = 'w'] = fen.trim().split(/\s+/);
@@ -203,6 +269,16 @@ function drawBoard() {
   lines.push('<rect class="border" x="0" y="0" width="8" height="9"/>');
   lines.push('<rect x="3" y="0" width="2" height="2"/><rect x="3" y="7" width="2" height="2"/>');
   lines.push('<text x="1.15" y="4.58">楚 河</text><text x="5.25" y="4.58">漢 界</text>');
+  if (analysisSuggestion) {
+    const [fromRow, fromCol] = analysisSuggestion.from;
+    const [toRow, toCol] = analysisSuggestion.to;
+    const x1 = flipped ? 8 - fromCol : fromCol;
+    const y1 = flipped ? 9 - fromRow : fromRow;
+    const x2 = flipped ? 8 - toCol : toCol;
+    const y2 = flipped ? 9 - toRow : toRow;
+    lines.push('<defs><marker id="analysisArrowHead" markerWidth="5" markerHeight="5" refX="3.5" refY="2.5" orient="auto"><path d="M0,0 L5,2.5 L0,5 z"/></marker></defs>');
+    lines.push(`<line class="analysis-arrow" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" marker-end="url(#analysisArrowHead)"/>`);
+  }
   const svg = `<svg class="board-svg" viewBox="-0.35 -0.35 8.7 9.7" preserveAspectRatio="none" aria-hidden="true">${lines.join('')}</svg>`;
   const squares = [];
   for (let y = 0; y < 10; y++) for (let x = 0; x < 9; x++) {
@@ -226,6 +302,7 @@ function setFen(fen) {
   moveHistory = [];
   selectedSquare = null;
   selectedMoves = [];
+  analysisSuggestion = null;
   $('#fenInput').value = fen.trim();
   drawBoard();
   renderHistory();
@@ -244,6 +321,7 @@ function makeMove(from, to) {
   position.turn = position.turn === 'w' ? 'b' : 'w';
   selectedSquare = null;
   selectedMoves = [];
+  analysisSuggestion = null;
   $('#fenInput').value = buildFen();
   drawBoard();
   renderHistory();
@@ -300,8 +378,11 @@ function parseMoves(raw) {
 
 async function analyze() {
   const button = $('#analyzeBtn');
+  if (mode === 'engine') return analyzeWithEngine(button);
   button.disabled = true;
   button.textContent = 'Đang truy vấn CDB…';
+  $('#sourcePill').textContent = 'CDB';
+  $('#hint').textContent = 'Đang tra cứu dữ liệu các ván cờ đã ghi nhận…';
   showEmpty('Đang lấy dữ liệu từ kho cờ…');
   try {
     const response = await fetch('/api/cdb', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: modeCopy[mode][2], board: $('#fenInput').value.trim() }) });
@@ -314,15 +395,152 @@ async function analyze() {
       if (!moves.length) return showEmpty(raw === 'unknown' ? 'CDB chưa có dữ liệu cho thế cờ này.' : `CDB trả về: ${raw || 'chưa có dữ liệu'}`);
       results.className = 'results';
       results.innerHTML = moves.slice(0, 12).map((move, index) => `<div class="move-result"><span class="rank">${String(index + 1).padStart(2, '0')}</span><strong>${escapeHtml(move.move || '—')}</strong><span>${move.score ? `Điểm ${escapeHtml(move.score)}` : move.winrate ? `Thắng ${escapeHtml(move.winrate)}%` : move.rank ? `Hạng ${escapeHtml(move.rank)}` : 'Đã ghi nhận'}</span></div>`).join('');
+      $('#hint').textContent = 'Đây là dữ liệu lịch sử của CDB, không phải đánh giá mới từ engine.';
     } else {
       results.className = 'results';
       results.innerHTML = `<div class="raw-result">${escapeHtml(raw || 'CDB chưa có dữ liệu cho thế cờ này.')}</div>`;
+      $('#hint').textContent = 'Điểm và biến do CDB trả về có thể thiếu nếu thế cờ chưa có trong kho.';
     }
   } catch (error) {
     showEmpty(error.message, true);
   } finally {
     button.disabled = false;
-    button.innerHTML = '<span>⌕</span> Phân tích thế cờ';
+    button.innerHTML = mode === 'engine' ? '<span>⌕</span> Phân tích bằng engine' : '<span>⌕</span> Tra cứu CDB';
+  }
+}
+
+function parseEngineInfo(line) {
+  const depth = Number(line.match(/\bdepth (\d+)/)?.[1] || 0);
+  const multipv = Number(line.match(/\bmultipv (\d+)/)?.[1] || 1);
+  const score = line.match(/\bscore (cp|mate) (-?\d+)/);
+  const pv = line.match(/\bpv (.+)$/)?.[1]?.trim().split(/\s+/) || [];
+  return score && pv.length ? { depth, multipv, unit: score[1], value: Number(score[2]), pv } : null;
+}
+
+function parseUciMove(uci) {
+  const match = /^([a-i])([0-9])([a-i])([0-9])$/.exec(uci || '');
+  if (!match) return null;
+  const file = (letter) => letter.charCodeAt(0) - 97;
+  return { from: [9 - Number(match[2]), file(match[1])], to: [9 - Number(match[4]), file(match[3])] };
+}
+
+function explainEngineMove(uci, board, turn) {
+  const move = parseUciMove(uci);
+  if (!move) return { label: uci, clue: '' };
+  const [fromRow, fromCol] = move.from;
+  const [toRow, toCol] = move.to;
+  const piece = board[fromRow]?.[fromCol];
+  const captured = board[toRow]?.[toCol];
+  const name = piece ? pieceName(piece) : 'Quân';
+  const square = ([row, col]) => `${String.fromCharCode(97 + col)}${9 - row}`;
+  const next = cloneBoard(board);
+  next[toRow][toCol] = piece;
+  next[fromRow][fromCol] = '';
+  const enemyKing = findGeneral(next, !isRed(piece));
+  const givesCheck = enemyKing && isSquareAttacked(next, enemyKing[0], enemyKing[1], isRed(piece));
+  const clues = [];
+  if (captured) clues.push(`ăn ${pieceName(captured)}`);
+  if (givesCheck) clues.push('chiếu Tướng');
+  const clue = clues.length
+    ? `${name} ${square(move.from)} → ${square(move.to)}: ${clues.join(', ')}.`
+    : `${name} ${square(move.from)} → ${square(move.to)}.`;
+  return { label: `${name} ${square(move.from)}–${square(move.to)}`, clue };
+}
+
+function formatPrincipalVariation(pv, sourceBoard, startingTurn) {
+  const board = cloneBoard(sourceBoard);
+  let turn = startingTurn;
+  return pv.map((uci, ply) => {
+    const move = parseUciMove(uci);
+    if (!move) return `${ply + 1}. ${uci}`;
+    const described = explainEngineMove(uci, board, turn);
+    const [fromRow, fromCol] = move.from;
+    const [toRow, toCol] = move.to;
+    board[toRow][toCol] = board[fromRow][fromCol];
+    board[fromRow][fromCol] = '';
+    turn = turn === 'w' ? 'b' : 'w';
+    return `${ply + 1}. ${described.label}`;
+  }).join('  ·  ');
+}
+
+function scoreText(info) {
+  if (info.unit === 'mate') return `mate ${info.value > 0 ? '+' : ''}${info.value} · engine dự báo chiếu bí`;
+  return `${info.value > 0 ? '+' : ''}${(info.value / 100).toFixed(2)} điểm engine`;
+}
+
+async function analyzeWithEngine(button) {
+  button.disabled = true;
+  button.textContent = 'Đang khởi động engine…';
+  $('#sourcePill').textContent = 'FAIRY-STOCKFISH';
+  $('#hint').textContent = 'Lần đầu cần tải engine WebAssembly (khoảng 1,6 MB); sau đó trình duyệt có thể dùng bộ nhớ đệm.';
+  showEmpty('Đang khởi động engine trên máy bạn…');
+  try {
+    const engine = await getEngine();
+    const fen = buildFen();
+    const ready = waitForEngineLine(engine, (line) => line === 'readyok');
+    engine.postMessage(`position fen ${fen} 0 1`);
+    engine.postMessage('isready');
+    await ready;
+    button.textContent = 'Engine đang phân tích…';
+    $('#hint').textContent = 'Engine đang tìm các phương án. Bạn có thể đọc biến chính để xem phản ứng của cả hai bên.';
+    const lines = [];
+    const result = await new Promise((resolve, reject) => {
+      let bestMove = null;
+      const timer = setTimeout(() => {
+        engine.postMessage('stop');
+        engine.removeMessageListener(listener);
+        reject(new Error('Phân tích quá thời gian. Hãy thử lại với vị trí ít quân hơn.'));
+      }, 90000);
+      const listener = (line) => {
+        if (line.startsWith('info ')) {
+          const info = parseEngineInfo(line);
+          if (info) {
+            const existing = lines.findIndex((item) => item.multipv === info.multipv);
+            if (existing < 0) lines.push(info);
+            else if (info.depth >= lines[existing].depth) lines[existing] = info;
+            $('#hint').textContent = `Đang tính đến độ sâu ${info.depth}…`;
+          }
+        }
+        if (line.startsWith('bestmove ')) {
+          bestMove = line.split(/\s+/)[1];
+          clearTimeout(timer);
+          engine.removeMessageListener(listener);
+          resolve({ bestMove, lines: [...lines].sort((a, b) => a.multipv - b.multipv) });
+        }
+      };
+      engine.addMessageListener(listener);
+      engine.postMessage('go depth 12');
+    });
+    if (buildFen() !== fen) throw new Error('Thế cờ đã đổi trong lúc phân tích; hãy phân tích lại vị trí mới.');
+    if (!result.bestMove || result.bestMove === '(none)' || !result.lines.length) {
+      showEmpty('Engine không tìm thấy nước đi. Hãy kiểm tra lại vị trí FEN.', true);
+      return;
+    }
+    const results = $('#results');
+    results.className = 'results engine-results';
+    const best = result.lines[0];
+    const first = explainEngineMove(result.bestMove, position.ranks, position.turn);
+    const bestMove = parseUciMove(result.bestMove);
+    analysisSuggestion = bestMove;
+    drawBoard();
+    results.innerHTML = `<div class="engine-best"><span class="section-kicker">NƯỚC TỐT NHẤT · ĐỘ SÂU ${best.depth}</span><strong>${escapeHtml(first.label)}</strong><small>${escapeHtml(scoreText(best))}</small><p>${escapeHtml(first.clue)} ${first.clue.includes('ăn ') || first.clue.includes('chiếu') ? 'Hãy xem các phản ứng trong biến bên dưới trước khi kết luận nước này có lợi.' : 'Tự thử tìm quân hoặc ô mà nước này đang gây sức ép; engine cho biết lựa chọn mạnh, còn biến giúp bạn kiểm tra ý tưởng.'}</p><button class="text-button try-engine-move" type="button">Thử nước này trên bàn cờ ↗</button></div><div class="engine-lines">${result.lines.map((info, index) => {
+      const moveText = formatPrincipalVariation(info.pv, position.ranks, position.turn);
+      return `<div class="engine-line"><div class="engine-line-head"><span>Phương án ${index + 1}</span><b>${escapeHtml(scoreText(info))}</b></div><p>${escapeHtml(moveText)}</p></div>`;
+    }).join('')}</div>`;
+    $('#hint').textContent = 'Điểm số dùng thang riêng của engine; các phương án là biến dự kiến, không phải lời giải thích chắc chắn cho mọi ý đồ chiến thuật.';
+    results.querySelector('.try-engine-move')?.addEventListener('click', () => {
+      const piece = bestMove && position.ranks[bestMove.from[0]]?.[bestMove.from[1]];
+      if (!bestMove || !piece || isRed(piece) !== (position.turn === 'w')) return;
+      if (!legalMoves(...bestMove.from).some(([row, col]) => row === bestMove.to[0] && col === bestMove.to[1])) return;
+      makeMove(bestMove.from, bestMove.to);
+      $('#hint').textContent = 'Bạn đã thử nước engine gợi ý. Phân tích lại để xem cách đối phương có thể đáp trả.';
+    });
+  } catch (error) {
+    $('#engineStatus').textContent = 'Chưa kết nối được engine';
+    showEmpty(`${error.message} Có thể dùng các tab CDB trong lúc này.`, true);
+  } finally {
+    button.disabled = false;
+    button.innerHTML = mode === 'engine' ? '<span>⌕</span> Phân tích bằng engine' : '<span>⌕</span> Tra cứu CDB';
   }
 }
 
@@ -338,7 +556,10 @@ document.querySelectorAll('.tab').forEach((button) => button.addEventListener('c
   mode = button.dataset.mode;
   $('#analysisTitle').textContent = modeCopy[mode][1];
   $('#resultKicker').textContent = modeCopy[mode][0];
-  showEmpty('Chọn “Phân tích thế cờ” để tra cứu.');
+  $('#sourcePill').textContent = mode === 'engine' ? 'FAIRY-STOCKFISH' : 'CDB';
+  $('#hint').textContent = mode === 'engine' ? 'Engine phân tích trực tiếp vị trí hiện tại trên trình duyệt của bạn.' : 'Tra cứu cơ sở dữ liệu Cờ Tướng Cloud Database.';
+  $('#analyzeBtn').innerHTML = mode === 'engine' ? '<span>⌕</span> Phân tích bằng engine' : '<span>⌕</span> Tra cứu CDB';
+  showEmpty(mode === 'engine' ? 'Bấm “Phân tích bằng engine” để bắt đầu.' : 'Bấm “Tra cứu CDB” để lấy dữ liệu.');
 }));
 $('#analyzeBtn').addEventListener('click', analyze);
 $('#flipBtn').addEventListener('click', () => { flipped = !flipped; drawBoard(); });
@@ -349,10 +570,13 @@ $('#loadFenBtn').addEventListener('click', () => {
 });
 $('#resetBtn').addEventListener('click', () => {
   setFen(START_FEN);
-  mode = 'moves';
+  mode = 'engine';
   document.querySelectorAll('.tab').forEach((button) => button.classList.toggle('active', button.dataset.mode === mode));
-  $('#analysisTitle').textContent = modeCopy.moves[1];
-  $('#resultKicker').textContent = modeCopy.moves[0];
-  showEmpty('Chọn một chế độ để tra cứu thế cờ hiện tại.');
+  $('#analysisTitle').textContent = modeCopy.engine[1];
+  $('#resultKicker').textContent = modeCopy.engine[0];
+  $('#sourcePill').textContent = 'FAIRY-STOCKFISH';
+  $('#hint').textContent = 'Engine phân tích trực tiếp vị trí hiện tại trên trình duyệt của bạn.';
+  $('#analyzeBtn').innerHTML = '<span>⌕</span> Phân tích bằng engine';
+  showEmpty('Bấm “Phân tích bằng engine” để bắt đầu.');
 });
-try { setFen(START_FEN); } catch (error) { showEmpty(error.message, true); }
+try { setFen(START_FEN); showEmpty('Bấm “Phân tích bằng engine” để bắt đầu.'); } catch (error) { showEmpty(error.message, true); }

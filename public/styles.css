@@ -35,3 +35,19 @@ body,button,input{font-family:'Be Vietnam Pro',system-ui,sans-serif}
 .history-move{color:#5f5d55}
 .history-capture{color:#a54a38;font-size:9px}
 @media(max-width:480px){.history-list li{grid-template-columns:24px 30px minmax(0,1fr);gap:6px}.history-capture{grid-column:3}.history-controls{gap:9px}.game-status{font-size:10px}}
+.tabs{gap:clamp(10px,1.7vw,23px)}
+.tab{white-space:nowrap}
+.engine-results{gap:10px;max-height:340px}
+.engine-best{padding:12px;background:#fffefa;border:1px solid #e9e4d9;border-left:3px solid var(--red);border-radius:3px}
+.engine-best .section-kicker{display:block;font-size:9px}
+.engine-best strong{display:block;margin-top:8px;font:600 17px 'Noto Serif',Georgia,serif;color:#322f28}
+.engine-best small{display:block;margin-top:4px;font:10px 'IBM Plex Mono',monospace;color:#758c71}
+.engine-best p,.engine-line p{margin:8px 0 0;font-size:11px;line-height:1.55;color:#77746a}
+.engine-line{padding:10px 11px;background:#fffefa;border:1px solid #efede7;border-radius:3px}
+.engine-line-head{display:flex;justify-content:space-between;gap:8px;font-size:10px;color:#77746a}
+.engine-line-head b{font:10px 'IBM Plex Mono',monospace;color:#758c71}
+.engine-line p{font:10px/1.7 'IBM Plex Mono',monospace;color:#55534d}
+.board-svg .analysis-arrow{stroke:#60936a;stroke-width:3;opacity:.82;marker-end:url(#analysisArrowHead)}
+.board-svg marker path{fill:#60936a;stroke:#60936a}
+.try-engine-move{margin-top:9px;padding:0;cursor:pointer}
+@media(max-width:480px){.tabs{gap:clamp(8px,3vw,15px);padding:0 12px}.tab{font-size:10px}.engine-results{max-height:380px}.engine-line-head{flex-direction:column;gap:4px}}
