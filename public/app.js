@@ -21,7 +21,7 @@ let engineReady = false;
 const $ = (selector) => document.querySelector(selector);
 
 const ENGINE_VERSION = '1.1.12';
-const ENGINE_BASE = `https://cdn.jsdelivr.net/npm/fairy-stockfish-nnue.wasm@${ENGINE_VERSION}`;
+const ENGINE_BASE = `/vendor/fairy-stockfish/${ENGINE_VERSION}`;
 
 function loadEngineScript() {
   if (window.Stockfish) return Promise.resolve();
@@ -368,12 +368,78 @@ function showEmpty(message, error = false) {
 
 function parseMoves(raw) {
   if (!raw || ['unknown', 'checkmate', 'stalemate', 'nobestmove'].includes(raw)) return [];
-  return raw.split('|').filter(Boolean).map((entry) => {
-    const fields = Object.fromEntries(entry.split(',').map((value) => {
-      const index = value.indexOf(':'); return index < 0 ? [value, ''] : [value.slice(0, index), value.slice(index + 1)];
-    }));
-    return fields;
+  return raw.split('|').filter(Boolean).map(parseCdbFields);
+}
+
+function parseCdbFields(entry) {
+  return Object.fromEntries(String(entry).split(',').map((value) => {
+    const index = value.indexOf(':');
+    return index < 0 ? [value.trim(), ''] : [value.slice(0, index).trim(), value.slice(index + 1).trim()];
+  }));
+}
+
+function cdbMoveLabel(uci, board = position.ranks) {
+  const move = parseUciMove(uci);
+  if (!move) return uci || '—';
+  const piece = board[move.from[0]]?.[move.from[1]];
+  const coords = ([row, col]) => `${String.fromCharCode(97 + col)}${9 - row}`;
+  return `${piece ? pieceName(piece) : 'Quân'} ${coords(move.from)}–${coords(move.to)}`;
+}
+
+function renderCdbMoves(raw) {
+  const moves = parseMoves(raw);
+  if (!moves.length) return false;
+  const results = $('#results');
+  results.className = 'results';
+  results.innerHTML = moves.slice(0, 12).map((move, index) => {
+    const moveCode = String(move.move || '').replace(/^move:/, '');
+    const details = [
+      move.score ? `Điểm ${move.score}` : '',
+      move.rank ? `Hạng ${move.rank}` : '',
+      move.winrate ? `Thắng ${move.winrate}%` : '',
+      move.note || ''
+    ].filter(Boolean).join(' · ') || 'Đã ghi nhận trong CDB';
+    return `<div class="move-result" ${parseUciMove(moveCode) ? `data-uci="${escapeHtml(moveCode)}" role="button" tabindex="0" title="Bấm để chỉ nước này trên bàn cờ"` : ''}><span class="rank">${String(index + 1).padStart(2, '0')}</span><strong>${escapeHtml(cdbMoveLabel(moveCode))}</strong><span>${escapeHtml(details)}</span></div>`;
+  }).join('');
+  results.querySelectorAll('[data-uci]').forEach((item) => {
+    const pointMove = () => {
+      analysisSuggestion = parseUciMove(item.dataset.uci);
+      drawBoard();
+    };
+    item.addEventListener('click', pointMove);
+    item.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); pointMove(); }
+    });
   });
+  return true;
+}
+
+function renderCdbScore(raw) {
+  if (!raw || raw === 'unknown') return false;
+  const match = /(?:^|,)\s*eval:([^,|]+)/i.exec(raw);
+  if (!match) return false;
+  const score = match[1].trim();
+  const numeric = Number(score);
+  const display = Number.isFinite(numeric) ? `${numeric > 0 ? '+' : ''}${numeric}` : score;
+  $('#results').className = 'results';
+  $('#results').innerHTML = `<div class="cdb-score"><span class="section-kicker">ĐIỂM CDB</span><strong>${escapeHtml(display)}</strong><p>Điểm dương có lợi cho bên đang đi theo cách đánh giá của CDB. Đây là điểm kho dữ liệu, không phải phần trăm thắng hay điểm Fairy-Stockfish.</p></div>`;
+  return true;
+}
+
+function renderCdbPv(raw) {
+  if (!raw || raw === 'unknown') return false;
+  const fields = parseCdbFields(raw);
+  const pvValue = fields.pv || '';
+  const pv = pvValue.split(/[|\s]+/).filter((move) => parseUciMove(move));
+  if (!pv.length) return false;
+  const facts = [fields.score ? `Điểm ${fields.score}` : '', fields.depth ? `độ sâu ${fields.depth}` : ''].filter(Boolean).join(' · ');
+  $('#results').className = 'results';
+  $('#results').innerHTML = `<div class="cdb-pv"><span class="section-kicker">BIẾN CDB${facts ? ` · ${escapeHtml(facts)}` : ''}</span><p>${escapeHtml(formatPrincipalVariation(pv, position.ranks, position.turn))}</p><small>Bấm một nước trong biến để chỉ nước đó trên bàn cờ.</small><div class="cdb-pv-moves">${pv.map((uci, index) => `<button type="button" class="cdb-pv-move" data-uci="${escapeHtml(uci)}">${index + 1}. ${escapeHtml(cdbMoveLabel(uci))}</button>`).join('')}</div></div>`;
+  $('#results').querySelectorAll('[data-uci]').forEach((item) => item.addEventListener('click', () => {
+    analysisSuggestion = parseUciMove(item.dataset.uci);
+    drawBoard();
+  }));
+  return true;
 }
 
 async function analyze() {
@@ -385,22 +451,27 @@ async function analyze() {
   $('#hint').textContent = 'Đang tra cứu dữ liệu các ván cờ đã ghi nhận…';
   showEmpty('Đang lấy dữ liệu từ kho cờ…');
   try {
-    const response = await fetch('/api/cdb', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: modeCopy[mode][2], board: $('#fenInput').value.trim() }) });
+    const response = await fetch('/api/cdb', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: modeCopy[mode][2], board: buildFen() }) });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || 'Truy vấn không thành công.');
     const raw = data.result;
     const results = $('#results');
-    if (mode === 'moves') {
-      const moves = parseMoves(raw);
-      if (!moves.length) return showEmpty(raw === 'unknown' ? 'CDB chưa có dữ liệu cho thế cờ này.' : `CDB trả về: ${raw || 'chưa có dữ liệu'}`);
-      results.className = 'results';
-      results.innerHTML = moves.slice(0, 12).map((move, index) => `<div class="move-result"><span class="rank">${String(index + 1).padStart(2, '0')}</span><strong>${escapeHtml(move.move || '—')}</strong><span>${move.score ? `Điểm ${escapeHtml(move.score)}` : move.winrate ? `Thắng ${escapeHtml(move.winrate)}%` : move.rank ? `Hạng ${escapeHtml(move.rank)}` : 'Đã ghi nhận'}</span></div>`).join('');
-      $('#hint').textContent = 'Đây là dữ liệu lịch sử của CDB, không phải đánh giá mới từ engine.';
-    } else {
-      results.className = 'results';
-      results.innerHTML = `<div class="raw-result">${escapeHtml(raw || 'CDB chưa có dữ liệu cho thế cờ này.')}</div>`;
-      $('#hint').textContent = 'Điểm và biến do CDB trả về có thể thiếu nếu thế cờ chưa có trong kho.';
+    const rendered = mode === 'moves' ? renderCdbMoves(raw) : mode === 'score' ? renderCdbScore(raw) : renderCdbPv(raw);
+    if (!rendered) {
+      const message = raw === 'unknown'
+        ? 'CDB chưa có dữ liệu cho thế cờ này.'
+        : ['checkmate', 'stalemate'].includes(raw)
+          ? `CDB báo thế cờ ${raw === 'checkmate' ? 'chiếu bí' : 'hòa bí'}.`
+          : raw === 'invalid board'
+            ? 'CDB không chấp nhận FEN này. Hãy tải lại vị trí FEN hợp lệ.'
+            : `CDB chưa trả dữ liệu theo định dạng dự kiến${raw ? `: ${raw}` : '.'}`;
+      showEmpty(message);
     }
+    $('#hint').textContent = mode === 'moves'
+      ? 'Đây là dữ liệu các nước đã có trong CDB; bấm một nước để chỉ nó trên bàn cờ.'
+      : mode === 'score'
+        ? 'Điểm dương nghĩa là bên đang đi có lợi theo đánh giá của CDB.'
+        : 'Biến và độ sâu do CDB trả về; bấm một nước trong biến để chỉ nó trên bàn cờ.';
   } catch (error) {
     showEmpty(error.message, true);
   } finally {
@@ -472,7 +543,7 @@ async function analyzeWithEngine(button) {
   button.disabled = true;
   button.textContent = 'Đang khởi động engine…';
   $('#sourcePill').textContent = 'FAIRY-STOCKFISH';
-  $('#hint').textContent = 'Lần đầu cần tải engine WebAssembly (khoảng 1,6 MB); sau đó trình duyệt có thể dùng bộ nhớ đệm.';
+  $('#hint').textContent = 'Engine đã được đóng gói cùng app; phân tích chạy trên máy và không cần tải engine từ Internet.';
   showEmpty('Đang khởi động engine trên máy bạn…');
   try {
     const engine = await getEngine();

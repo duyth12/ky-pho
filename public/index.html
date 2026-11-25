@@ -28,7 +28,7 @@
         <aside class="analysis-card">
           <div class="tabs"><button class="tab active" data-mode="engine">Engine</button><button class="tab" data-mode="moves">Nước CDB</button><button class="tab" data-mode="score">Điểm CDB</button><button class="tab" data-mode="line">Biến CDB</button></div>
           <div class="analysis-content"><div class="analysis-title"><div><span class="section-kicker" id="resultKicker">PHÂN TÍCH TRỰC TIẾP</span><h2 id="analysisTitle">Engine gợi ý nước đi</h2></div><span class="source-pill" id="sourcePill">FAIRY-STOCKFISH</span></div>
-            <p class="hint" id="hint">Engine phân tích trực tiếp vị trí hiện tại trên trình duyệt của bạn.</p>
+            <p class="hint" id="hint">Engine đã được đóng gói cùng app; phân tích chạy trên máy và không cần tải engine từ Internet.</p>
             <div id="results" class="results empty"><span class="empty-glyph">象</span><span>Kết quả phân tích sẽ hiển thị tại đây</span></div>
             <button id="analyzeBtn" class="primary"><span>⌕</span> Phân tích bằng engine</button>
           </div>
@@ -37,7 +37,7 @@
       </section>
       <section class="lower-grid">
         <div class="panel" id="library"><div class="panel-head"><div><span class="section-kicker">HỒ SƠ VÁN CỜ</span><h3>Lịch sử nước đi</h3></div><div class="history-controls"><button class="text-button" id="undoBtn" disabled>Lùi một nước</button><button class="text-button" id="resetBtn">Ván mới <span>↗</span></button></div></div><div class="history-empty" id="historyEmpty"><span>◷</span><div><strong>Chưa có nước đi nào</strong><small>Chọn một quân, rồi chọn ô được đánh dấu để đi. Luật đi quân và chiếu Tướng được kiểm tra tự động.</small></div></div><ol class="history-list" id="historyList" hidden></ol></div>
-        <div class="panel note-panel"><span class="section-kicker">NGUỒN PHÂN TÍCH</span><h3>Engine và kho ván cờ</h3><p>Fairy-Stockfish phân tích thế cờ bằng WebAssembly ngay trên máy. CDB cung cấp các nước đi đã được ghi nhận trong cơ sở dữ liệu; hai nguồn có thể cho kết quả khác nhau.</p><p><a href="https://github.com/fairy-stockfish/fairy-stockfish.wasm" target="_blank" rel="noreferrer">Fairy-Stockfish WASM · GPL-3.0</a></p><div class="note-foot"><span>ENGINE</span><b id="engineStatus">Chưa tải · tải khi bấm phân tích</b></div></div>
+        <div class="panel note-panel"><span class="section-kicker">NGUỒN PHÂN TÍCH</span><h3>Engine và kho ván cờ</h3><p>Fairy-Stockfish được đóng gói cùng app và phân tích bằng WebAssembly trên máy. CDB lấy dữ liệu khai cuộc/biến từ máy chủ; hai nguồn có thể cho kết quả khác nhau.</p><p><a href="https://github.com/fairy-stockfish/fairy-stockfish.wasm" target="_blank" rel="noreferrer">Mã nguồn Fairy-Stockfish</a> · <a href="/vendor/fairy-stockfish/1.1.12/Copying.txt" target="_blank" rel="noreferrer">GPL-3.0</a></p><div class="note-foot"><span>ENGINE</span><b id="engineStatus">Đã có trong app · khởi động khi phân tích</b></div></div>
       </section>
       <footer><span>KỲ PHỔ <span class="foot-dot">·</span> PHÒNG NGHIÊN CỨU CỜ TƯỚNG</span><span>V0.1 · BẢN THỬ NGHIỆM</span></footer>
     </main>
