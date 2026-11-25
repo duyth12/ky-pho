@@ -1,10 +1,10 @@
 # Kỳ Phổ — Xiangqi study room
 
-Small starter web app for exploring Xiangqi positions with the Xiangqi Cloud Database (CDB).
+A small Vietnamese Xiangqi study app for playing through positions and looking them up in the Xiangqi Cloud Database (CDB).
 
 ## Run locally
 
-Requires Node.js 20 or newer. No package install is needed.
+Requires Node.js 20 or newer. The app has no package dependencies.
 
 ```sh
 npm start
@@ -12,19 +12,22 @@ npm start
 
 Then open `http://localhost:3000`.
 
-## Current scope
+## Play through a position
 
-- Shows the initial Xiangqi position and can load a position in CDB FEN notation.
-- Calls CDB through a same-origin Node server route, avoiding browser cross-origin and HTTPS-to-HTTP restrictions.
-- Provides tabs for known moves, position score, and analysis line.
-- Keeps the CDB connection in the server so the UI can later use an engine/database adapter without changing the board screen.
+- Select a piece on the board. Its legal destinations are highlighted.
+- Select a highlighted square to move. Turns alternate between Red and Black.
+- The board checks piece movement, blocked paths, palace and river limits, check, and whether a move leaves your General in check.
+- Use **Lùi một nước** to undo the last move, or **Ván mới** to reset.
+- Load a CDB FEN position to continue from it. The FEN structure and piece symbols are checked before loading.
 
-This is an analysis prototype, not yet a complete game. It does not validate legal moves, save accounts or games, import PGN, or include an Xiangqi engine. CDB provides data for positions it knows; it is not a user-owned game database.
+This is a local two-side board, not a computer opponent. Game history is kept in the current browser session and is not saved after a refresh.
 
-## Suggested next milestones
+## CDB lookup
 
-1. Add a rules-aware Xiangqi board and move history.
-2. Import/export common Xiangqi game notation and review each position in a game.
-3. Add persistent storage for user games and saved analysis.
-4. Add an optional local or hosted engine for positions without CDB data.
-5. Add puzzles, lessons, and play modes as separate sections.
+The app calls CDB through the same-origin Node server route `/api/cdb`, which avoids browser cross-origin and HTTPS-to-HTTP restrictions. It provides known moves, position score, and a principal variation when CDB has data for the position.
+
+## Next milestones
+
+1. Add game saving and import/export for common Xiangqi notation.
+2. Add an optional local or hosted Xiangqi engine for computer play and positions without CDB data.
+3. Add puzzles and guided lessons.
