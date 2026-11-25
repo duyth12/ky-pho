@@ -333,7 +333,7 @@ function drawBoard() {
     if (selected) classes.push('selected');
     if (destination) classes.push('legal-target', piece ? 'capture-target' : '');
     const sideLabel = piece ? `${isRed(piece) ? 'Đỏ' : 'Đen'} ${pieceName(piece)}` : 'Ô trống';
-    squares.push(`<button type="button" class="${classes.filter(Boolean).join(' ')}" data-row="${row}" data-col="${col}" aria-label="${sideLabel}, ${squareLabel(row, col)}">${piece ? `<span class="piece ${isRed(piece) ? '' : 'black'}" aria-hidden="true">${glyphs[piece]}</span>` : ''}</button>`);
+    squares.push(`<button type="button" class="${classes.filter(Boolean).join(' ')}" data-row="${row}" data-col="${col}" aria-label="${sideLabel}, ${squareLabel(row, col)}">${piece ? `<span class="piece ${isRed(piece) ? 'red' : 'black'}" aria-hidden="true"><span class="piece-glyph">${glyphs[piece]}</span></span>` : ''}</button>`);
   }
   canvas.innerHTML = svg + `<div class="pieces">${squares.join('')}</div>`;
   const fileOrder = Array.from({ length: 9 }, (_, index) => String.fromCharCode(97 + index));
