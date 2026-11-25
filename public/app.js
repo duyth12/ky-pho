@@ -293,7 +293,7 @@ function renderHistory() {
   list.innerHTML = [...moveHistory].reverse().map((move, index) => {
     const number = moveHistory.length - index;
     const side = move.red ? 'Đỏ' : 'Đen';
-    return `<li><span class="history-number">${String(number).padStart(2, '0')}</span><span class="history-side ${move.red ? 'red' : 'black'}">${side}</span><span class="history-move">${move.name}: ${squareLabel(...move.from)} → ${squareLabel(...move.to)}</span><span class="history-grade" title="Đánh giá tương đối bằng Fairy-Stockfish">${escapeHtml(move.grade || 'Đang chấm…')}</span>${move.captured ? `<span class="history-capture">Ăn ${pieceName(move.captured)}</span>` : ''}</li>`;
+    return `<li><span class="history-number">${String(number).padStart(2, '0')}</span><span class="history-side ${move.red ? 'red' : 'black'}">${side}</span><span class="history-move">${move.name}: ${squareLabel(...move.from)} → ${squareLabel(...move.to)}</span><span class="history-grade" title="Đánh giá tương đối bằng Fairy-Stockfish">${escapeHtml(move.grade || 'Đang chấm…')}</span>${move.captured ? `<span class="history-capture">Ăn ${pieceName(move.captured)}</span>` : ''}<small class="history-reason">${escapeHtml(move.reason || 'Đang phân tích tác động của nước đi…')}</small></li>`;
   }).join('');
   refreshStatus();
 }
@@ -364,7 +364,7 @@ function makeMove(from, to) {
   const captured = position.ranks[toRow][toCol];
   const before = { ranks: cloneBoard(position.ranks), turn: position.turn };
   const beforeFen = buildFenFor(before);
-  const record = { id: crypto.randomUUID(), before, beforeFen, from, to, piece, captured, red: isRed(piece), name: pieceName(piece), grade: 'Đang chấm…' };
+  const record = { id: crypto.randomUUID(), before, beforeFen, from, to, piece, captured, red: isRed(piece), name: pieceName(piece), grade: 'Đang chấm…', reason: describeBoardMove(before.ranks, from, to, isRed(piece)) };
   moveHistory.push(record);
   position.ranks[toRow][toCol] = piece;
   position.ranks[row][col] = '';
@@ -515,12 +515,14 @@ async function analyze() {
     const rendered = mode === 'moves' ? renderCdbMoves(raw) : mode === 'score' ? renderCdbScore(raw) : renderCdbPv(raw);
     if (!rendered) {
       const message = raw === 'unknown'
-        ? 'CDB chưa có dữ liệu cho thế cờ này.'
+        ? 'CDB đã nhận truy vấn nhưng chưa có dữ liệu cho thế cờ này. Thử lại ở vị trí khai cuộc hoặc sau một vài nước phổ biến.'
         : ['checkmate', 'stalemate'].includes(raw)
           ? `CDB báo thế cờ ${raw === 'checkmate' ? 'chiếu bí' : 'hòa bí'}.`
           : raw === 'invalid board'
-            ? 'CDB không chấp nhận FEN này. Hãy tải lại vị trí FEN hợp lệ.'
-            : `CDB chưa trả dữ liệu theo định dạng dự kiến${raw ? `: ${raw}` : '.'}`;
+            ? 'CDB đã nhận truy vấn nhưng từ chối FEN. Hãy tải lại vị trí hoặc kiểm tra lượt đi trong ô FEN.'
+            : raw === 'nobestmove'
+              ? 'CDB không có nước khai cuộc phù hợp trong dữ liệu cho vị trí này.'
+              : `CDB phản hồi chưa nhận diện được${raw ? `: ${raw}` : '. Nếu gặp ở cả ba tab, hãy khởi động lại server bằng bộ mã mới nhất.'}`;
       showEmpty(message);
     }
     $('#hint').textContent = mode === 'moves'
@@ -615,6 +617,7 @@ async function gradeMove(record, afterFen) {
     const [beforeScore, afterScore] = await Promise.all([evaluateFen(record.beforeFen), evaluateFen(afterFen)]);
     const gainForMover = (afterScore - beforeScore) * (record.red ? 1 : -1);
     record.grade = `${moveGrade(gainForMover)} · ${gainForMover >= 0 ? '+' : ''}${(gainForMover / 100).toFixed(1)}`;
+    record.reason += ` Điểm theo bên đi: ${(beforeScore * (record.red ? 1 : -1) / 100).toFixed(1)} → ${(afterScore * (record.red ? 1 : -1) / 100).toFixed(1)}; thay đổi ${(gainForMover >= 0 ? '+' : '')}${(gainForMover / 100).toFixed(1)} điểm engine.`;
   } catch {
     record.grade = 'Chưa chấm được';
   }
@@ -707,13 +710,54 @@ function explainEngineMove(uci, board, turn, notation = 'cdb') {
   next[fromRow][fromCol] = '';
   const enemyKing = findGeneral(next, !isRed(piece));
   const givesCheck = enemyKing && isSquareAttacked(next, enemyKing[0], enemyKing[1], isRed(piece));
-  const clues = [];
-  if (captured) clues.push(`ăn ${pieceName(captured)}`);
-  if (givesCheck) clues.push('chiếu Tướng');
-  const clue = clues.length
-    ? `${name} ${square(move.from)} → ${square(move.to)}: ${clues.join(', ')}.`
-    : `${name} ${square(move.from)} → ${square(move.to)}.`;
-  return { label: `${name} ${square(move.from)}–${square(move.to)}`, clue };
+  const impact = describeBoardMove(board, move.from, move.to, isRed(piece));
+  return { label: `${name} ${square(move.from)}–${square(move.to)}`, clue: impact };
+}
+
+function attackersOf(board, targetRow, targetCol, red) {
+  const attackers = [];
+  for (let row = 0; row < 10; row++) for (let col = 0; col < 9; col++) {
+    const piece = board[row][col];
+    if (piece && isRed(piece) === red && pseudoMoves(board, row, col).some(([r, c]) => r === targetRow && c === targetCol)) attackers.push([row, col]);
+  }
+  return attackers;
+}
+
+function describeBoardMove(board, from, to, red) {
+  const [fromRow, fromCol] = from;
+  const [toRow, toCol] = to;
+  const piece = board[fromRow]?.[fromCol];
+  if (!piece) return 'Không xác định được quân ở ô xuất phát.';
+  const next = cloneBoard(board);
+  const captured = next[toRow][toCol];
+  next[toRow][toCol] = piece;
+  next[fromRow][fromCol] = '';
+  const square = ([row, col]) => `${String.fromCharCode(97 + col)}${row + 1}`;
+  const facts = [];
+  if (captured) facts.push(`ăn ${pieceName(captured)}`);
+  const enemyKing = findGeneral(next, !red);
+  if (enemyKing && isSquareAttacked(next, enemyKing[0], enemyKing[1], red)) facts.push('chiếu Tướng');
+
+  const value = { k: 100, r: 9, c: 7, n: 5, b: 3, a: 3, p: 2 };
+  const newTargets = [];
+  for (let row = 0; row < 10; row++) for (let col = 0; col < 9; col++) {
+    const target = next[row][col];
+    if (!target || isRed(target) === red || target.toLowerCase() === 'k') continue;
+    const beforeAttackers = attackersOf(board, row, col, red).length;
+    const afterAttackers = attackersOf(next, row, col, red).length;
+    if (afterAttackers > beforeAttackers) newTargets.push({ row, col, target, count: afterAttackers, value: value[target.toLowerCase()] || 0 });
+  }
+  newTargets.sort((a, b) => b.value - a.value || b.count - a.count);
+  for (const threat of newTargets.slice(0, 2)) facts.push(`tạo thêm sức ép lên ${pieceName(threat.target)} ${square([threat.row, threat.col])}`);
+
+  const attackers = attackersOf(next, toRow, toCol, !red).length;
+  if (attackers && !captured) {
+    const defenders = attackersOf(next, toRow, toCol, red).length;
+    facts.push(defenders ? `quân vừa đi đang bị tấn công và được ${defenders} quân bảo vệ` : 'quân vừa đi đang bị tấn công mà chưa thấy quân bảo vệ');
+  }
+  return facts.length
+    ? `${pieceName(piece)} ${square(from)} → ${square(to)}: ${facts.join('; ')}.`
+    : `${pieceName(piece)} ${square(from)} → ${square(to)}. Không phát hiện ăn quân, chiếu hoặc đòn tấn công mới trực tiếp; lợi ích vị trí được phản ánh trong điểm và biến engine.`;
 }
 
 function formatPrincipalVariation(pv, sourceBoard, startingTurn, notation = 'cdb') {
@@ -760,9 +804,10 @@ async function analyzeWithEngine(button) {
     const bestMove = parseUciMove(result.bestMove, 'engine');
     analysisSuggestion = bestMove;
     drawBoard();
-    results.innerHTML = `<div class="engine-best"><span class="section-kicker">NƯỚC TỐT NHẤT CHO ${position.turn === 'w' ? 'ĐỎ' : 'ĐEN'} · ĐỘ SÂU ${best.depth}</span><strong>${escapeHtml(first.label)}</strong><small>${escapeHtml(scoreText(best))}</small><p>${escapeHtml(first.clue)} ${first.clue.includes('ăn ') || first.clue.includes('chiếu') ? 'Hãy xem các phản ứng trong biến bên dưới trước khi kết luận nước này có lợi.' : 'Tự thử tìm quân hoặc ô mà nước này đang gây sức ép; engine cho biết lựa chọn mạnh, còn biến giúp bạn kiểm tra ý tưởng.'}</p><button class="text-button try-engine-move" type="button">Thử nước này trên bàn cờ ↗</button></div><div class="engine-lines">${result.lines.map((info, index) => {
+    results.innerHTML = `<div class="engine-best"><span class="section-kicker">NƯỚC TỐT NHẤT CHO ${position.turn === 'w' ? 'ĐỎ' : 'ĐEN'} · ĐỘ SÂU ${best.depth}</span><strong>${escapeHtml(first.label)}</strong><small>${escapeHtml(scoreText(best))}</small><p><b>Tác động trên bàn:</b> ${escapeHtml(first.clue)}</p><p><b>Engine dự kiến:</b> ${escapeHtml(formatPrincipalVariation(best.pv.slice(0, 4), position.ranks, position.turn, 'engine'))}. Đây là biến tìm được ở độ sâu trên, không phải lời giải duy nhất.</p><button class="text-button try-engine-move" type="button">Thử nước này trên bàn cờ ↗</button></div><div class="engine-lines">${result.lines.map((info, index) => {
       const moveText = formatPrincipalVariation(info.pv, position.ranks, position.turn, 'engine');
-      return `<div class="engine-line"><div class="engine-line-head"><span>Phương án ${index + 1}</span><b>${escapeHtml(scoreText(info))}</b></div><p>${escapeHtml(moveText)}</p></div>`;
+      const lineFirst = explainEngineMove(info.pv[0], position.ranks, position.turn, 'engine');
+      return `<div class="engine-line"><div class="engine-line-head"><span>Phương án ${index + 1} · ${escapeHtml(lineFirst.label)}</span><b>${escapeHtml(scoreText(info))}</b></div><p>${escapeHtml(lineFirst.clue)}</p><p class="pv-line">${escapeHtml(moveText)}</p></div>`;
     }).join('')}</div>`;
     $('#hint').textContent = 'Điểm số dùng thang riêng của engine; các phương án là biến dự kiến, không phải lời giải thích chắc chắn cho mọi ý đồ chiến thuật.';
     results.querySelector('.try-engine-move')?.addEventListener('click', () => {

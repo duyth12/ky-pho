@@ -83,4 +83,8 @@ body,button,input{font-family:'Be Vietnam Pro',system-ui,sans-serif}
 .fen-tools button:disabled{background:#f7f5f0}
 .history-list li{grid-template-columns:28px 34px minmax(0,1fr) auto;}
 .history-grade{grid-column:4;color:#547b62;font-size:9px;white-space:nowrap}
+.history-reason{grid-column:3/5;color:#858176;font-size:9px;line-height:1.5}
+.engine-best p b{color:#57544a;font-weight:600}
+.engine-line .pv-line{margin-top:7px;padding-top:6px;border-top:1px solid #f0eee8;color:#55534d}
 @media(max-width:480px){.board-wrap{grid-template-columns:minmax(0,1fr) 18px;gap:0 3px}.rank-labels,.file-labels{font-size:8px}.board-controls{justify-content:center;margin-bottom:10px}.ai-controls{justify-content:center;flex-wrap:wrap}.ai-controls small{flex-basis:100%;text-align:center}.fen-tools{gap:5px}.fen-tools button{flex:1}.history-list li{grid-template-columns:22px 28px minmax(0,1fr);gap:5px}.history-grade{grid-column:3;grid-row:2}.history-capture{grid-column:3;grid-row:3}}
+@media(max-width:480px){.history-reason{grid-column:3;grid-row:4}}
