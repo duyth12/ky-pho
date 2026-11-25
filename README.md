@@ -24,13 +24,13 @@ This is a local two-side board, not a computer opponent. Game history is kept in
 
 ## CDB lookup
 
-The app calls CDB through the same-origin Node server route `/api/cdb`, which avoids browser cross-origin and HTTPS-to-HTTP restrictions. It provides known moves, position score, and a principal variation when CDB has data for the position.
+The app calls CDB through the same-origin Node server route `/api/cdb` over HTTPS. It provides known moves, an evaluation score, and a principal variation when CDB has data for the position. CDB can return `unknown` when it has no stored result for the current position.
 
 ## Engine analysis
 
-Choose **Engine** and click **Phân tích bằng engine**. The app loads Fairy-Stockfish NNUE WebAssembly v1.1.12 from jsDelivr on first use, then analyzes the current position in the browser at depth 12 with up to three principal variations. The engine runs locally after its files load; it does not send the board position to an analysis server. A network connection is needed for the first download. If the CDN is blocked, use the CDB tabs instead.
+Choose **Engine** and click **Phân tích bằng engine**. Fairy-Stockfish NNUE WebAssembly v1.1.12 is bundled under `public/vendor/fairy-stockfish/`, so the engine is ready when the app files are downloaded; first use does not need a CDN or Internet connection. It analyzes the current position in the browser at depth 12 with up to three principal variations. The board position stays on the user's machine.
 
-The engine is distributed under GPL-3.0. Upstream source and license: <https://github.com/fairy-stockfish/fairy-stockfish.wasm>. The displayed engine score is its own evaluation scale, not a win probability or a human explanation of every tactical idea. The variations are intended to help the learner inspect possible replies.
+The engine is distributed under GPL-3.0. The license and authors list are included beside the engine files. Upstream source: <https://github.com/fairy-stockfish/fairy-stockfish.wasm>. The displayed engine score is its own evaluation scale, not a win probability or a human explanation of every tactical idea. The variations are intended to help the learner inspect possible replies.
 
 ## Next milestones
 

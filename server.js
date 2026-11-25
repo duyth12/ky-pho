@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 const root = fileURLToPath(new URL('.', import.meta.url));
 const publicDir = join(root, 'public');
 const port = Number(process.env.PORT || 3000);
-const mime = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml' };
+const mime = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.wasm': 'application/wasm' };
 const isolationHeaders = {
   'cross-origin-opener-policy': 'same-origin',
   'cross-origin-embedder-policy': 'credentialless'
@@ -38,17 +38,26 @@ async function handleCdb(req, res) {
       return;
     }
 
-    const url = new URL('http://www.chessdb.cn/chessdb.php');
+    const url = new URL('https://www.chessdb.cn/chessdb.php');
     url.searchParams.set('action', action);
     url.searchParams.set('board', board);
     url.searchParams.set('learn', '0');
-    const response = await fetch(url, { signal: AbortSignal.timeout(12000) });
+    const response = await fetch(url, {
+      headers: { accept: 'text/plain, text/html;q=0.9, */*;q=0.8', 'user-agent': 'KyPhoStudy/0.1' },
+      signal: AbortSignal.timeout(15000)
+    });
+    if (!response.ok) throw new Error(`CDB returned HTTP ${response.status}`);
     const text = await response.text();
     res.writeHead(200, { ...isolationHeaders, 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
     res.end(JSON.stringify({ action, result: text.trim() }));
   } catch (error) {
     res.writeHead(502, { 'content-type': 'application/json' });
-    res.end(JSON.stringify({ error: error.name === 'TimeoutError' ? 'CDB request timed out' : 'Could not reach Xiangqi Cloud Database' }));
+    const message = error.name === 'TimeoutError'
+      ? 'CDB request timed out'
+      : error.message.startsWith('CDB returned HTTP ')
+        ? error.message
+        : 'Could not reach Xiangqi Cloud Database';
+    res.end(JSON.stringify({ error: message }));
   }
 }
 
@@ -65,7 +74,9 @@ const server = createServer(async (req, res) => {
   }
   try {
     const body = await readFile(file);
-    res.writeHead(200, { ...isolationHeaders, 'content-type': mime[extname(file)] || 'application/octet-stream' });
+    const headers = { ...isolationHeaders, 'content-type': mime[extname(file)] || 'application/octet-stream' };
+    if (pathname.startsWith('/vendor/fairy-stockfish/')) headers['cache-control'] = 'public, max-age=31536000, immutable';
+    res.writeHead(200, headers);
     res.end(req.method === 'HEAD' ? undefined : body);
   } catch {
     res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
