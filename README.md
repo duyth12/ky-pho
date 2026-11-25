@@ -35,6 +35,8 @@ The three CDB tabs use the same local `/api/cdb` route and send the current Xian
 
 To use the tabs, start the Node server and click **Tra cứu CDB** from **Nước CDB**, **Điểm CDB**, or **Biến CDB**. The initial position is a useful connection check. CDB coverage varies by position; a returned `unknown` means the request succeeded but the database has no result for that board.
 
+If a CDB request times out, the app did not receive a response from the remote database; this is different from `unknown` and is not a board-position error. Check outbound access to `www.chessdb.cn` on TCP ports 80 and 443, or try another network. Fairy-Stockfish analysis continues to work locally without CDB access.
+
 ## Engine analysis
 
 Choose **Engine** and click **Phân tích bằng engine**. Fairy-Stockfish NNUE WebAssembly v1.1.12 is bundled under `public/vendor/fairy-stockfish/`, so the engine is ready when the app files are downloaded; first use does not need a CDN or Internet connection. It analyzes the current position in the browser at depth 12 with up to three principal variations. The board position stays on the user's machine.

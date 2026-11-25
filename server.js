@@ -76,7 +76,7 @@ async function handleCdb(req, res) {
   } catch (error) {
     res.writeHead(502, { 'content-type': 'application/json' });
     const message = error.name === 'TimeoutError'
-      ? 'CDB request timed out'
+      ? 'CDB không phản hồi trong thời gian chờ. Hãy kiểm tra mạng hoặc firewall trên cổng 80/443; đây không phải lỗi FEN.'
       : error.message.startsWith('CDB returned HTTP ')
         ? `CDB đang từ chối truy vấn (HTTP). Thử lại sau ít phút. (${error.message})`
         : 'Could not reach Xiangqi Cloud Database';
