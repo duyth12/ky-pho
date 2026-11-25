@@ -15,6 +15,11 @@ let selectedMoves = [];
 let moveHistory = [];
 let gameOver = false;
 let analysisSuggestion = null;
+let isComputerGame = false;
+let playerSide = 'w';
+let computerThinking = false;
+const evaluationCache = new Map();
+let engineQueue = Promise.resolve();
 let enginePromise = null;
 let engineInstance = null;
 let engineReady = false;
@@ -222,6 +227,19 @@ function buildFen() {
   return `${placement} ${position.turn}`;
 }
 
+function buildFenFor(snapshot) {
+  const placement = snapshot.ranks.map((rank) => {
+    let empty = 0, row = '';
+    for (const piece of rank) {
+      if (!piece) empty++;
+      else { if (empty) row += empty; row += piece; empty = 0; }
+    }
+    if (empty) row += empty;
+    return row;
+  }).join('/');
+  return `${placement} ${snapshot.turn}`;
+}
+
 function squareLabel(row, col) { return `hàng ${row + 1}, cột ${col + 1}`; }
 function pieceName(piece) { return pieceNames[piece.toLowerCase()] || 'Quân'; }
 
@@ -246,6 +264,8 @@ function refreshStatus() {
       : inCheck ? `${redToMove ? 'Đỏ' : 'Đen'} đang bị chiếu.` : 'Chọn quân của bên đang đi.';
   $('#moveCount').textContent = `Nước ${Math.floor(moveHistory.length / 2) + 1}`;
   $('#undoBtn').disabled = moveHistory.length === 0;
+  $('#playerSide').disabled = isComputerGame;
+  $('#playComputerBtn').textContent = isComputerGame ? 'Dừng chơi với máy' : 'Chơi với máy';
 }
 
 function renderHistory() {
@@ -256,7 +276,7 @@ function renderHistory() {
   list.innerHTML = [...moveHistory].reverse().map((move, index) => {
     const number = moveHistory.length - index;
     const side = move.red ? 'Đỏ' : 'Đen';
-    return `<li><span class="history-number">${String(number).padStart(2, '0')}</span><span class="history-side ${move.red ? 'red' : 'black'}">${side}</span><span class="history-move">${move.name}: ${squareLabel(...move.from)} → ${squareLabel(...move.to)}</span>${move.captured ? `<span class="history-capture">Ăn ${pieceName(move.captured)}</span>` : ''}</li>`;
+    return `<li><span class="history-number">${String(number).padStart(2, '0')}</span><span class="history-side ${move.red ? 'red' : 'black'}">${side}</span><span class="history-move">${move.name}: ${squareLabel(...move.from)} → ${squareLabel(...move.to)}</span><span class="history-grade" title="Đánh giá tương đối bằng Fairy-Stockfish">${escapeHtml(move.grade || 'Đang chấm…')}</span>${move.captured ? `<span class="history-capture">Ăn ${pieceName(move.captured)}</span>` : ''}</li>`;
   }).join('');
   refreshStatus();
 }
@@ -264,11 +284,16 @@ function renderHistory() {
 function drawBoard() {
   const canvas = $('#boardCanvas');
   const lines = [];
-  for (let x = 0; x < 9; x++) lines.push(`<line x1="${x}" y1="0" x2="${x}" y2="9"/>`);
+  for (let x = 0; x < 9; x++) {
+    if (x === 0 || x === 8) lines.push(`<line x1="${x}" y1="0" x2="${x}" y2="9"/>`);
+    else {
+      lines.push(`<line x1="${x}" y1="0" x2="${x}" y2="4"/>`);
+      lines.push(`<line x1="${x}" y1="5" x2="${x}" y2="9"/>`);
+    }
+  }
   for (let y = 0; y <= 9; y++) lines.push(`<line x1="0" y1="${y}" x2="8" y2="${y}"/>`);
   lines.push('<rect class="border" x="0" y="0" width="8" height="9"/>');
   lines.push('<rect x="3" y="0" width="2" height="2"/><rect x="3" y="7" width="2" height="2"/>');
-  lines.push('<text x="1.15" y="4.58">楚 河</text><text x="5.25" y="4.58">漢 界</text>');
   if (analysisSuggestion) {
     const [fromRow, fromCol] = analysisSuggestion.from;
     const [toRow, toCol] = analysisSuggestion.to;
@@ -294,15 +319,22 @@ function drawBoard() {
     squares.push(`<button type="button" class="${classes.filter(Boolean).join(' ')}" data-row="${row}" data-col="${col}" aria-label="${sideLabel}, ${squareLabel(row, col)}">${piece ? `<span class="piece ${isRed(piece) ? '' : 'black'}" aria-hidden="true">${glyphs[piece]}</span>` : ''}</button>`);
   }
   canvas.innerHTML = svg + `<div class="pieces">${squares.join('')}</div>`;
+  const fileOrder = Array.from({ length: 9 }, (_, index) => String.fromCharCode(97 + index));
+  const rankOrder = Array.from({ length: 10 }, (_, index) => String(index + 1));
+  $('#fileLabels').innerHTML = (flipped ? fileOrder.reverse() : fileOrder).map((label) => `<span>${label}</span>`).join('');
+  $('#rankLabels').innerHTML = (flipped ? rankOrder.reverse() : rankOrder).map((label) => `<span>${label}</span>`).join('');
   refreshStatus();
 }
 
 function setFen(fen) {
+  isComputerGame = false;
+  computerThinking = false;
   position = parseFen(fen);
   moveHistory = [];
   selectedSquare = null;
   selectedMoves = [];
   analysisSuggestion = null;
+  evaluationCache.clear();
   $('#fenInput').value = fen.trim();
   drawBoard();
   renderHistory();
@@ -312,10 +344,10 @@ function makeMove(from, to) {
   const [row, col] = from, [toRow, toCol] = to;
   const piece = position.ranks[row][col];
   const captured = position.ranks[toRow][toCol];
-  moveHistory.push({
-    before: { ranks: cloneBoard(position.ranks), turn: position.turn },
-    from, to, piece, captured, red: isRed(piece), name: pieceName(piece)
-  });
+  const before = { ranks: cloneBoard(position.ranks), turn: position.turn };
+  const beforeFen = buildFenFor(before);
+  const record = { id: crypto.randomUUID(), before, beforeFen, from, to, piece, captured, red: isRed(piece), name: pieceName(piece), grade: 'Đang chấm…' };
+  moveHistory.push(record);
   position.ranks[toRow][toCol] = piece;
   position.ranks[row][col] = '';
   position.turn = position.turn === 'w' ? 'b' : 'w';
@@ -325,10 +357,12 @@ function makeMove(from, to) {
   $('#fenInput').value = buildFen();
   drawBoard();
   renderHistory();
+  void gradeMove(record, buildFen());
+  if (isComputerGame && position.turn !== playerSide) void playComputerTurn();
 }
 
 function handleSquareClick(row, col) {
-  if (gameOver) return;
+  if (gameOver || computerThinking || (isComputerGame && position.turn !== playerSide)) return;
   const piece = position.ranks[row][col];
   if (selectedSquare) {
     if (selectedMoves.some(([r, c]) => r === row && c === col)) {
@@ -350,7 +384,11 @@ function handleSquareClick(row, col) {
 }
 
 function undoMove() {
-  const last = moveHistory.pop();
+  if (!moveHistory.length) return;
+  let removeCount = 1;
+  if (isComputerGame && moveHistory.at(-1)?.red !== (playerSide === 'w') && moveHistory.length > 1) removeCount = 2;
+  let last;
+  for (let index = 0; index < removeCount; index++) last = moveHistory.pop() || last;
   if (!last) return;
   position = last.before;
   selectedSquare = null;
@@ -488,6 +526,106 @@ function parseEngineInfo(line) {
   return score && pv.length ? { depth, multipv, unit: score[1], value: Number(score[2]), pv } : null;
 }
 
+function queueEngineTask(task) {
+  const pending = engineQueue.then(task, task);
+  engineQueue = pending.catch(() => {});
+  return pending;
+}
+
+function searchEngine(fen, depth, multipv = 1) {
+  return queueEngineTask(async () => {
+    const engine = await getEngine();
+    const ready = waitForEngineLine(engine, (line) => line === 'readyok');
+    engine.postMessage(`setoption name MultiPV value ${multipv}`);
+    engine.postMessage(`position fen ${fen} 0 1`);
+    engine.postMessage('isready');
+    await ready;
+    return new Promise((resolve, reject) => {
+      const lines = new Map();
+      const timer = setTimeout(() => {
+        engine.postMessage('stop');
+        engine.removeMessageListener(listener);
+        reject(new Error('Engine phản hồi quá lâu.'));
+      }, 90000);
+      const listener = (line) => {
+        if (line.startsWith('info ')) {
+          const info = parseEngineInfo(line);
+          if (info && info.depth >= (lines.get(info.multipv)?.depth || 0)) lines.set(info.multipv, info);
+        }
+        if (line.startsWith('bestmove ')) {
+          clearTimeout(timer);
+          engine.removeMessageListener(listener);
+          resolve({ bestMove: line.split(/\s+/)[1], lines: [...lines.values()].sort((a, b) => a.multipv - b.multipv) });
+        }
+      };
+      engine.addMessageListener(listener);
+      engine.postMessage(`go depth ${depth}`);
+    });
+  });
+}
+
+function scoreToRed(info, fen) {
+  if (!info) return null;
+  const sideToMove = fen.trim().split(/\s+/)[1] || 'w';
+  let score = info.unit === 'mate'
+    ? Math.sign(info.value || 1) * (100000 - Math.min(Math.abs(info.value), 999) * 100)
+    : info.value;
+  if (sideToMove === 'b') score = -score;
+  return score;
+}
+
+function moveGrade(delta) {
+  if (delta <= -300) return 'Sai lầm lớn';
+  if (delta <= -150) return 'Sai lầm';
+  if (delta <= -70) return 'Chưa chính xác';
+  if (delta >= 120) return 'Nước rất tốt';
+  if (delta >= 45) return 'Nước tốt';
+  return 'Ổn';
+}
+
+async function evaluateFen(fen) {
+  if (evaluationCache.has(fen)) return evaluationCache.get(fen);
+  const result = await searchEngine(fen, 8, 1);
+  const score = scoreToRed(result.lines[0], fen);
+  if (score === null) throw new Error('Engine chưa chấm được thế cờ này.');
+  evaluationCache.set(fen, score);
+  return score;
+}
+
+async function gradeMove(record, afterFen) {
+  try {
+    const [beforeScore, afterScore] = await Promise.all([evaluateFen(record.beforeFen), evaluateFen(afterFen)]);
+    const gainForMover = (afterScore - beforeScore) * (record.red ? 1 : -1);
+    record.grade = `${moveGrade(gainForMover)} · ${gainForMover >= 0 ? '+' : ''}${(gainForMover / 100).toFixed(1)}`;
+  } catch {
+    record.grade = 'Chưa chấm được';
+  }
+  if (moveHistory.some((move) => move.id === record.id)) renderHistory();
+}
+
+async function playComputerTurn() {
+  if (!isComputerGame || gameOver || position.turn === playerSide || computerThinking) return;
+  computerThinking = true;
+  $('#gameStatus').textContent = 'Máy đang suy nghĩ…';
+  const fen = buildFen();
+  try {
+    const result = await searchEngine(fen, 10, 1);
+    if (!isComputerGame || buildFen() !== fen || !result.bestMove || result.bestMove === '(none)') return;
+    const move = parseUciMove(result.bestMove);
+    if (!move) throw new Error('Máy trả về nước đi không đọc được.');
+    const piece = position.ranks[move.from[0]]?.[move.from[1]];
+    if (!piece || isRed(piece) !== (position.turn === 'w') || !legalMoves(...move.from).some(([row, col]) => row === move.to[0] && col === move.to[1])) {
+      throw new Error('Nước máy đề xuất không hợp lệ trong thế cờ hiện tại.');
+    }
+    makeMove(move.from, move.to);
+  } catch (error) {
+    $('#gameStatus').textContent = `Không đi được nước máy: ${error.message}`;
+  } finally {
+    computerThinking = false;
+    if (isComputerGame && position.turn === playerSide && !gameOver) $('#gameStatus').textContent = 'Đến lượt bạn.';
+  }
+}
+
 function parseUciMove(uci) {
   const match = /^([a-i])([0-9])([a-i])([0-9])$/.exec(uci || '');
   if (!match) return null;
@@ -546,42 +684,10 @@ async function analyzeWithEngine(button) {
   $('#hint').textContent = 'Engine đã được đóng gói cùng app; phân tích chạy trên máy và không cần tải engine từ Internet.';
   showEmpty('Đang khởi động engine trên máy bạn…');
   try {
-    const engine = await getEngine();
     const fen = buildFen();
-    const ready = waitForEngineLine(engine, (line) => line === 'readyok');
-    engine.postMessage(`position fen ${fen} 0 1`);
-    engine.postMessage('isready');
-    await ready;
     button.textContent = 'Engine đang phân tích…';
     $('#hint').textContent = 'Engine đang tìm các phương án. Bạn có thể đọc biến chính để xem phản ứng của cả hai bên.';
-    const lines = [];
-    const result = await new Promise((resolve, reject) => {
-      let bestMove = null;
-      const timer = setTimeout(() => {
-        engine.postMessage('stop');
-        engine.removeMessageListener(listener);
-        reject(new Error('Phân tích quá thời gian. Hãy thử lại với vị trí ít quân hơn.'));
-      }, 90000);
-      const listener = (line) => {
-        if (line.startsWith('info ')) {
-          const info = parseEngineInfo(line);
-          if (info) {
-            const existing = lines.findIndex((item) => item.multipv === info.multipv);
-            if (existing < 0) lines.push(info);
-            else if (info.depth >= lines[existing].depth) lines[existing] = info;
-            $('#hint').textContent = `Đang tính đến độ sâu ${info.depth}…`;
-          }
-        }
-        if (line.startsWith('bestmove ')) {
-          bestMove = line.split(/\s+/)[1];
-          clearTimeout(timer);
-          engine.removeMessageListener(listener);
-          resolve({ bestMove, lines: [...lines].sort((a, b) => a.multipv - b.multipv) });
-        }
-      };
-      engine.addMessageListener(listener);
-      engine.postMessage('go depth 12');
-    });
+    const result = await searchEngine(fen, 12, 3);
     if (buildFen() !== fen) throw new Error('Thế cờ đã đổi trong lúc phân tích; hãy phân tích lại vị trí mới.');
     if (!result.bestMove || result.bestMove === '(none)' || !result.lines.length) {
       showEmpty('Engine không tìm thấy nước đi. Hãy kiểm tra lại vị trí FEN.', true);
@@ -635,11 +741,33 @@ document.querySelectorAll('.tab').forEach((button) => button.addEventListener('c
 $('#analyzeBtn').addEventListener('click', analyze);
 $('#flipBtn').addEventListener('click', () => { flipped = !flipped; drawBoard(); });
 $('#undoBtn').addEventListener('click', undoMove);
+$('#playComputerBtn').addEventListener('click', () => {
+  if (isComputerGame) {
+    isComputerGame = false;
+    computerThinking = false;
+    refreshStatus();
+    $('#gameStatus').textContent = 'Đã dừng chơi với máy. Bạn có thể đi cả hai bên.';
+    return;
+  }
+  try {
+    setFen(START_FEN);
+    playerSide = $('#playerSide').value;
+    isComputerGame = true;
+    $('#hint').textContent = `Bạn cầm quân ${playerSide === 'w' ? 'Đỏ' : 'Đen'}; Fairy-Stockfish sẽ đi bên còn lại.`;
+    $('#gameStatus').textContent = 'Ván mới với máy đã bắt đầu.';
+    refreshStatus();
+    if (position.turn !== playerSide) void playComputerTurn();
+  } catch (error) {
+    showEmpty(error.message, true);
+  }
+});
 $('#loadFenBtn').addEventListener('click', () => {
   try { setFen($('#fenInput').value); showEmpty('Đã tải vị trí. Chọn quân để bắt đầu ván.'); }
   catch (error) { showEmpty(error.message, true); }
 });
 $('#resetBtn').addEventListener('click', () => {
+  isComputerGame = false;
+  computerThinking = false;
   setFen(START_FEN);
   mode = 'engine';
   document.querySelectorAll('.tab').forEach((button) => button.classList.toggle('active', button.dataset.mode === mode));

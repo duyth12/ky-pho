@@ -61,3 +61,16 @@ body,button,input{font-family:'Be Vietnam Pro',system-ui,sans-serif}
 .cdb-pv-move{padding:6px 8px;background:#fffefa;border:1px solid #efede7;border-radius:3px;color:#55534d;font:10px 'IBM Plex Mono',monospace;cursor:pointer}
 .note-panel a{color:#9e4a37}
 @media(max-width:480px){.tabs{gap:clamp(8px,3vw,15px);padding:0 12px}.tab{font-size:10px}.engine-results{max-height:380px}.engine-line-head{flex-direction:column;gap:4px}}
+
+/* Board coordinates, clear river, move grading, and computer play controls */
+.board-wrap{display:grid;grid-template-columns:minmax(0,1fr) 20px;grid-template-rows:auto 18px;gap:0 5px;align-items:stretch}
+.board-canvas{grid-column:1;grid-row:1;aspect-ratio:8/9}
+.rank-labels{grid-column:2;grid-row:1;display:grid;grid-template-rows:repeat(10,1fr);align-items:center;text-align:center;color:#98794f;font:9px 'IBM Plex Mono',monospace}
+.file-labels{grid-column:1;grid-row:2;display:grid;grid-template-columns:repeat(9,1fr);align-items:center;text-align:center;padding:4px 0 0}
+.board-svg text{display:none}
+.board-controls{display:flex;justify-content:flex-end;align-items:center;gap:9px;margin:5px auto 12px;max-width:440px;color:#89857b;font-size:10px}
+.board-controls select{border:1px solid #e8e5de;border-radius:3px;background:#fffefa;color:#514f48;padding:5px 7px;font:10px 'Be Vietnam Pro',sans-serif}
+.board-controls button{border:1px solid #e7d6ca;border-radius:3px;padding:6px 10px;background:#f9eee7;color:#9e4a37;font-weight:600}
+.history-list li{grid-template-columns:28px 34px minmax(0,1fr) auto;}
+.history-grade{grid-column:4;color:#547b62;font-size:9px;white-space:nowrap}
+@media(max-width:480px){.board-wrap{grid-template-columns:minmax(0,1fr) 18px;gap:0 3px}.rank-labels,.file-labels{font-size:8px}.board-controls{justify-content:center;margin-bottom:10px}.history-list li{grid-template-columns:22px 28px minmax(0,1fr);gap:5px}.history-grade{grid-column:3;grid-row:2}.history-capture{grid-column:3;grid-row:3}}
