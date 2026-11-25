@@ -32,31 +32,53 @@ async function handleCdb(req, res) {
   try {
     const { action, board } = JSON.parse(raw || '{}');
     const allowed = new Set(['queryall', 'querybest', 'queryscore', 'querypv']);
-    // Include uppercase A (red advisor/guard), which is present in the initial FEN.
-    if (!allowed.has(action) || typeof board !== 'string' || board.length > 300 || !/^[rnbakcpRNBAKCP1-9/w ]+$/.test(board)) {
+    const fen = typeof board === 'string' ? board.trim().split(/\s+/) : [];
+    const rows = fen[0]?.split('/') || [];
+    const validPlacement = rows.length === 10 && rows.every((row) => {
+      let files = 0;
+      for (const char of row) {
+        if (/^[1-9]$/.test(char)) files += Number(char);
+        else if (/^[rnbakcpRNBAKCP]$/.test(char)) files++;
+        else return false;
+      }
+      return files === 9;
+    });
+    if (!allowed.has(action) || typeof board !== 'string' || board.length > 300 || fen.length !== 2 || !['w', 'b'].includes(fen[1]) || !validPlacement) {
       res.writeHead(400, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Invalid action or board' }));
+      res.end(JSON.stringify({ error: 'Vị trí FEN không hợp lệ. Hãy nạp lại vị trí rồi thử lại.' }));
       return;
     }
 
-    const url = new URL('https://www.chessdb.cn/chessdb.php');
-    url.searchParams.set('action', action);
-    url.searchParams.set('board', board);
-    url.searchParams.set('learn', '0');
-    const response = await fetch(url, {
-      headers: { accept: 'text/plain, text/html;q=0.9, */*;q=0.8', 'user-agent': 'KyPhoStudy/0.1' },
-      signal: AbortSignal.timeout(15000)
-    });
-    if (!response.ok) throw new Error(`CDB returned HTTP ${response.status}`);
-    const text = await response.text();
+    let text = '';
+    let lastError;
+    for (const endpoint of ['https://www.chessdb.cn/chessdb.php', 'https://chessdb.cn/chessdb.php', 'http://www.chessdb.cn/chessdb.php']) {
+      const url = new URL(endpoint);
+      url.searchParams.set('action', action);
+      url.searchParams.set('board', `${rows.join('/')} ${fen[1]}`);
+      url.searchParams.set('learn', '0');
+      try {
+        const response = await fetch(url, {
+          headers: { accept: 'text/plain, text/html;q=0.9, */*;q=0.8', 'user-agent': 'KyPhoStudy/0.1' },
+          signal: AbortSignal.timeout(9000)
+        });
+        if (!response.ok) throw new Error(`CDB returned HTTP ${response.status}`);
+        text = (await response.text()).trim();
+        if (!text) throw new Error('CDB trả về dữ liệu rỗng');
+        lastError = null;
+        break;
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    if (lastError) throw lastError;
     res.writeHead(200, { ...isolationHeaders, 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
-    res.end(JSON.stringify({ action, result: text.trim() }));
+    res.end(JSON.stringify({ action, result: text }));
   } catch (error) {
     res.writeHead(502, { 'content-type': 'application/json' });
     const message = error.name === 'TimeoutError'
       ? 'CDB request timed out'
       : error.message.startsWith('CDB returned HTTP ')
-        ? error.message
+        ? `CDB đang từ chối truy vấn (HTTP). Thử lại sau ít phút. (${error.message})`
         : 'Could not reach Xiangqi Cloud Database';
     res.end(JSON.stringify({ error: message }));
   }
