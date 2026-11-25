@@ -7,6 +7,10 @@ const root = fileURLToPath(new URL('.', import.meta.url));
 const publicDir = join(root, 'public');
 const port = Number(process.env.PORT || 3000);
 const mime = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml' };
+const isolationHeaders = {
+  'cross-origin-opener-policy': 'same-origin',
+  'cross-origin-embedder-policy': 'credentialless'
+};
 
 async function handleCdb(req, res) {
   if (req.method !== 'POST') {
@@ -40,7 +44,7 @@ async function handleCdb(req, res) {
     url.searchParams.set('learn', '0');
     const response = await fetch(url, { signal: AbortSignal.timeout(12000) });
     const text = await response.text();
-    res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
+    res.writeHead(200, { ...isolationHeaders, 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
     res.end(JSON.stringify({ action, result: text.trim() }));
   } catch (error) {
     res.writeHead(502, { 'content-type': 'application/json' });
@@ -61,7 +65,7 @@ const server = createServer(async (req, res) => {
   }
   try {
     const body = await readFile(file);
-    res.writeHead(200, { 'content-type': mime[extname(file)] || 'application/octet-stream' });
+    res.writeHead(200, { ...isolationHeaders, 'content-type': mime[extname(file)] || 'application/octet-stream' });
     res.end(req.method === 'HEAD' ? undefined : body);
   } catch {
     res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });

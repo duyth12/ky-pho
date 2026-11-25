@@ -1,6 +1,6 @@
 # Kỳ Phổ — Xiangqi study room
 
-A small Vietnamese Xiangqi study app for playing through positions and looking them up in the Xiangqi Cloud Database (CDB).
+A Vietnamese Xiangqi study app for playing through positions, analyzing with Fairy-Stockfish, and looking up known games in the Xiangqi Cloud Database (CDB).
 
 ## Run locally
 
@@ -26,8 +26,14 @@ This is a local two-side board, not a computer opponent. Game history is kept in
 
 The app calls CDB through the same-origin Node server route `/api/cdb`, which avoids browser cross-origin and HTTPS-to-HTTP restrictions. It provides known moves, position score, and a principal variation when CDB has data for the position.
 
+## Engine analysis
+
+Choose **Engine** and click **Phân tích bằng engine**. The app loads Fairy-Stockfish NNUE WebAssembly v1.1.12 from jsDelivr on first use, then analyzes the current position in the browser at depth 12 with up to three principal variations. The engine runs locally after its files load; it does not send the board position to an analysis server. A network connection is needed for the first download. If the CDN is blocked, use the CDB tabs instead.
+
+The engine is distributed under GPL-3.0. Upstream source and license: <https://github.com/fairy-stockfish/fairy-stockfish.wasm>. The displayed engine score is its own evaluation scale, not a win probability or a human explanation of every tactical idea. The variations are intended to help the learner inspect possible replies.
+
 ## Next milestones
 
-1. Add game saving and import/export for common Xiangqi notation.
-2. Add an optional local or hosted Xiangqi engine for computer play and positions without CDB data.
-3. Add puzzles and guided lessons.
+1. Add position-aware explanations that identify threats, loose pieces, checks, and tactical motifs from engine variations.
+2. Add guided hint levels so learners can request a clue before seeing the best move.
+3. Add saved games, puzzles, and a structured lessons path with progress tracking.
