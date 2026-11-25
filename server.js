@@ -32,7 +32,8 @@ async function handleCdb(req, res) {
   try {
     const { action, board } = JSON.parse(raw || '{}');
     const allowed = new Set(['queryall', 'querybest', 'queryscore', 'querypv']);
-    if (!allowed.has(action) || typeof board !== 'string' || board.length > 300 || !/^[rnbakcpRNBKCP1-9/w ]+$/.test(board)) {
+    // Include uppercase A (red advisor/guard), which is present in the initial FEN.
+    if (!allowed.has(action) || typeof board !== 'string' || board.length > 300 || !/^[rnbakcpRNBAKCP1-9/w ]+$/.test(board)) {
       res.writeHead(400, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ error: 'Invalid action or board' }));
       return;

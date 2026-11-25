@@ -19,8 +19,11 @@ Then open `http://localhost:3000`.
 - The board checks piece movement, blocked paths, palace and river limits, check, and whether a move leaves your General in check.
 - Use **Lùi một nước** to undo the last move, or **Ván mới** to reset.
 - Load a CDB FEN position to continue from it. The FEN structure and piece symbols are checked before loading.
+- The board shows files `a`–`i` below it and ranks `1`–`10` on the right; the river is left clear so its grid does not run through a label.
+- After each move, Fairy-Stockfish estimates how much the move changed the position and labels it (for example, **Nước tốt** or **Sai lầm**). This quick label is an engine estimate, not a human referee's verdict.
+- To play the computer, choose whether you want Red or Black, then click **Chơi với máy**. The computer moves automatically for the other side. Click **Dừng chơi với máy** to return to two-side analysis. In a computer game, **Lùi một nước** takes back the last pair when both sides have moved.
 
-This is a local two-side board, not a computer opponent. Game history is kept in the current browser session and is not saved after a refresh.
+Game history is kept in the current browser session and is not saved after a refresh.
 
 ## CDB lookup
 
