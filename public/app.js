@@ -420,7 +420,7 @@ function cdbMoveLabel(uci, board = position.ranks) {
   const move = parseUciMove(uci);
   if (!move) return uci || '—';
   const piece = board[move.from[0]]?.[move.from[1]];
-  const coords = ([row, col]) => `${String.fromCharCode(97 + col)}${9 - row}`;
+  const coords = ([row, col]) => `${String.fromCharCode(97 + col)}${row + 1}`;
   return `${piece ? pieceName(piece) : 'Quân'} ${coords(move.from)}–${coords(move.to)}`;
 }
 
@@ -611,7 +611,7 @@ async function playComputerTurn() {
   try {
     const result = await searchEngine(fen, 10, 1);
     if (!isComputerGame || buildFen() !== fen || !result.bestMove || result.bestMove === '(none)') return;
-    const move = parseUciMove(result.bestMove);
+    const move = parseUciMove(result.bestMove, 'engine');
     if (!move) throw new Error('Máy trả về nước đi không đọc được.');
     const piece = position.ranks[move.from[0]]?.[move.from[1]];
     if (!piece || isRed(piece) !== (position.turn === 'w') || !legalMoves(...move.from).some(([row, col]) => row === move.to[0] && col === move.to[1])) {
@@ -626,22 +626,29 @@ async function playComputerTurn() {
   }
 }
 
-function parseUciMove(uci) {
-  const match = /^([a-i])([0-9])([a-i])([0-9])$/.exec(uci || '');
+function parseUciMove(uci, notation = 'cdb') {
+  const match = /^([a-i])(10|[0-9])([a-i])(10|[0-9])$/.exec(uci || '');
   if (!match) return null;
+  if (notation === 'engine') {
+    const fromRank = Number(match[2]);
+    const toRank = Number(match[4]);
+    if (fromRank < 1 || fromRank > 10 || toRank < 1 || toRank > 10) return null;
+    return { from: [10 - fromRank, match[1].charCodeAt(0) - 97], to: [10 - toRank, match[3].charCodeAt(0) - 97] };
+  }
+  if (match[2] === '10' || match[4] === '10') return null;
   const file = (letter) => letter.charCodeAt(0) - 97;
   return { from: [9 - Number(match[2]), file(match[1])], to: [9 - Number(match[4]), file(match[3])] };
 }
 
-function explainEngineMove(uci, board, turn) {
-  const move = parseUciMove(uci);
+function explainEngineMove(uci, board, turn, notation = 'cdb') {
+  const move = parseUciMove(uci, notation);
   if (!move) return { label: uci, clue: '' };
   const [fromRow, fromCol] = move.from;
   const [toRow, toCol] = move.to;
   const piece = board[fromRow]?.[fromCol];
   const captured = board[toRow]?.[toCol];
   const name = piece ? pieceName(piece) : 'Quân';
-  const square = ([row, col]) => `${String.fromCharCode(97 + col)}${9 - row}`;
+  const square = ([row, col]) => `${String.fromCharCode(97 + col)}${row + 1}`;
   const next = cloneBoard(board);
   next[toRow][toCol] = piece;
   next[fromRow][fromCol] = '';
@@ -656,13 +663,13 @@ function explainEngineMove(uci, board, turn) {
   return { label: `${name} ${square(move.from)}–${square(move.to)}`, clue };
 }
 
-function formatPrincipalVariation(pv, sourceBoard, startingTurn) {
+function formatPrincipalVariation(pv, sourceBoard, startingTurn, notation = 'cdb') {
   const board = cloneBoard(sourceBoard);
   let turn = startingTurn;
   return pv.map((uci, ply) => {
-    const move = parseUciMove(uci);
+    const move = parseUciMove(uci, notation);
     if (!move) return `${ply + 1}. ${uci}`;
-    const described = explainEngineMove(uci, board, turn);
+    const described = explainEngineMove(uci, board, turn, notation);
     const [fromRow, fromCol] = move.from;
     const [toRow, toCol] = move.to;
     board[toRow][toCol] = board[fromRow][fromCol];
@@ -696,12 +703,12 @@ async function analyzeWithEngine(button) {
     const results = $('#results');
     results.className = 'results engine-results';
     const best = result.lines[0];
-    const first = explainEngineMove(result.bestMove, position.ranks, position.turn);
-    const bestMove = parseUciMove(result.bestMove);
+    const first = explainEngineMove(result.bestMove, position.ranks, position.turn, 'engine');
+    const bestMove = parseUciMove(result.bestMove, 'engine');
     analysisSuggestion = bestMove;
     drawBoard();
-    results.innerHTML = `<div class="engine-best"><span class="section-kicker">NƯỚC TỐT NHẤT · ĐỘ SÂU ${best.depth}</span><strong>${escapeHtml(first.label)}</strong><small>${escapeHtml(scoreText(best))}</small><p>${escapeHtml(first.clue)} ${first.clue.includes('ăn ') || first.clue.includes('chiếu') ? 'Hãy xem các phản ứng trong biến bên dưới trước khi kết luận nước này có lợi.' : 'Tự thử tìm quân hoặc ô mà nước này đang gây sức ép; engine cho biết lựa chọn mạnh, còn biến giúp bạn kiểm tra ý tưởng.'}</p><button class="text-button try-engine-move" type="button">Thử nước này trên bàn cờ ↗</button></div><div class="engine-lines">${result.lines.map((info, index) => {
-      const moveText = formatPrincipalVariation(info.pv, position.ranks, position.turn);
+    results.innerHTML = `<div class="engine-best"><span class="section-kicker">NƯỚC TỐT NHẤT CHO ${position.turn === 'w' ? 'ĐỎ' : 'ĐEN'} · ĐỘ SÂU ${best.depth}</span><strong>${escapeHtml(first.label)}</strong><small>${escapeHtml(scoreText(best))}</small><p>${escapeHtml(first.clue)} ${first.clue.includes('ăn ') || first.clue.includes('chiếu') ? 'Hãy xem các phản ứng trong biến bên dưới trước khi kết luận nước này có lợi.' : 'Tự thử tìm quân hoặc ô mà nước này đang gây sức ép; engine cho biết lựa chọn mạnh, còn biến giúp bạn kiểm tra ý tưởng.'}</p><button class="text-button try-engine-move" type="button">Thử nước này trên bàn cờ ↗</button></div><div class="engine-lines">${result.lines.map((info, index) => {
+      const moveText = formatPrincipalVariation(info.pv, position.ranks, position.turn, 'engine');
       return `<div class="engine-line"><div class="engine-line-head"><span>Phương án ${index + 1}</span><b>${escapeHtml(scoreText(info))}</b></div><p>${escapeHtml(moveText)}</p></div>`;
     }).join('')}</div>`;
     $('#hint').textContent = 'Điểm số dùng thang riêng của engine; các phương án là biến dự kiến, không phải lời giải thích chắc chắn cho mọi ý đồ chiến thuật.';
