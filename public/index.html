@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="theme-color" content="#f5f3ee" />
   <title>Kỳ Phổ — Phòng phân tích cờ tướng</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
@@ -15,12 +17,13 @@
       <button class="profile" title="Tài khoản">♙</button>
     </header>
     <main id="analysis">
-      <div class="intro"><div><p class="eyebrow">PHÒNG NGHIÊN CỨU · 01</p><h1>Đọc thế cờ.<br><em>Hiểu nước đi.</em></h1><p class="subhead">Tra cứu kho dữ liệu Cờ Tướng và xem các nước đi đã được ghi nhận.</p></div><div class="online"><i></i> CDB · CLOUD DATABASE</div></div>
+      <div class="intro"><div><p class="eyebrow">PHÒNG NGHIÊN CỨU · 01</p><h1>Đọc thế cờ.<br><em>Hiểu nước đi.</em></h1><p class="subhead">Đi cờ hai bên, xem nước hợp lệ và tra cứu kho dữ liệu Cờ Tướng.</p></div><div class="online"><i></i> CDB · CLOUD DATABASE</div></div>
       <section class="workspace">
         <div class="board-card" id="board">
-          <div class="board-heading"><div><span class="section-kicker">THẾ CỜ HIỆN TẠI</span><strong>Ván phân tích mới</strong></div><button class="icon-button" id="flipBtn" title="Lật bàn cờ">↻</button></div>
+          <div class="board-heading"><div><span class="section-kicker">THẾ CỜ HIỆN TẠI</span><strong>Ván cờ của bạn</strong></div><button class="icon-button" id="flipBtn" title="Lật bàn cờ" aria-label="Lật bàn cờ">↻</button></div>
           <div class="board-wrap"><div id="boardCanvas" class="board-canvas" aria-label="Bàn cờ tướng"></div><div class="file-labels" id="fileLabels"></div></div>
           <div class="turn-row"><span class="turn-dot"></span><span id="turnLabel">Đỏ đi</span><span class="move-count" id="moveCount">Nước 1</span></div>
+          <p class="game-status" id="gameStatus" aria-live="polite">Chọn quân của bên đang đi.</p>
         </div>
         <aside class="analysis-card">
           <div class="tabs"><button class="tab active" data-mode="moves">Nước đi</button><button class="tab" data-mode="score">Đánh giá</button><button class="tab" data-mode="line">Biến chính</button></div>
@@ -33,7 +36,7 @@
         </aside>
       </section>
       <section class="lower-grid">
-        <div class="panel" id="library"><div class="panel-head"><div><span class="section-kicker">HỒ SƠ VÁN CỜ</span><h3>Lịch sử phân tích</h3></div><button class="text-button" id="resetBtn">Ván mới <span>↗</span></button></div><div class="history-empty"><span>◷</span><div><strong>Chưa có nước đi nào</strong><small>Khi bạn tải một thế cờ, lịch sử sẽ bắt đầu tại đây.</small></div></div></div>
+        <div class="panel" id="library"><div class="panel-head"><div><span class="section-kicker">HỒ SƠ VÁN CỜ</span><h3>Lịch sử nước đi</h3></div><div class="history-controls"><button class="text-button" id="undoBtn" disabled>Lùi một nước</button><button class="text-button" id="resetBtn">Ván mới <span>↗</span></button></div></div><div class="history-empty" id="historyEmpty"><span>◷</span><div><strong>Chưa có nước đi nào</strong><small>Chọn một quân, rồi chọn ô được đánh dấu để đi. Luật đi quân và chiếu Tướng được kiểm tra tự động.</small></div></div><ol class="history-list" id="historyList" hidden></ol></div>
         <div class="panel note-panel"><span class="section-kicker">VỀ NGUỒN DỮ LIỆU</span><h3>Kho cờ, không phải engine riêng</h3><p>CDB trả về dữ liệu đã biết cho thế cờ được tra cứu. Nếu vị trí chưa có trong kho, kết quả có thể trống; có thể bổ sung engine Xiangqi ở giai đoạn sau.</p><div class="note-foot"><span>API STATUS</span><b><i></i> Sẵn sàng truy vấn</b></div></div>
       </section>
       <footer><span>KỲ PHỔ <span class="foot-dot">·</span> PHÒNG NGHIÊN CỨU CỜ TƯỚNG</span><span>V0.1 · BẢN THỬ NGHIỆM</span></footer>

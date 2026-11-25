@@ -1,5 +1,6 @@
 const START_FEN = 'rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w';
 const glyphs = { r:'車', n:'馬', b:'象', a:'士', k:'將', c:'砲', p:'卒', R:'俥', N:'傌', B:'相', A:'仕', K:'帥', C:'炮', P:'兵' };
+const pieceNames = { r:'Xe', n:'Mã', b:'Tượng', a:'Sĩ', k:'Tướng', c:'Pháo', p:'Tốt' };
 const modeCopy = {
   moves: ['GỢI Ý NƯỚC ĐI', 'Các nước đã biết từ kho CDB', 'queryall'],
   score: ['ĐIỂM THẾ CỜ', 'Điểm đánh giá do CDB trả về', 'queryscore'],
@@ -8,7 +9,11 @@ const modeCopy = {
 let mode = 'moves';
 let flipped = false;
 let position = { ranks: [], turn: 'w' };
-const $ = (s) => document.querySelector(s);
+let selectedSquare = null;
+let selectedMoves = [];
+let moveHistory = [];
+let gameOver = false;
+const $ = (selector) => document.querySelector(selector);
 
 function parseFen(fen) {
   const [placement, turn = 'w'] = fen.trim().split(/\s+/);
@@ -28,6 +33,168 @@ function parseFen(fen) {
   return { ranks, turn };
 }
 
+function isRed(piece) { return piece !== '' && piece === piece.toUpperCase(); }
+function inBounds(row, col) { return row >= 0 && row < 10 && col >= 0 && col < 9; }
+function cloneBoard(board) { return board.map((row) => [...row]); }
+function findGeneral(board, red) {
+  const king = red ? 'K' : 'k';
+  for (let row = 0; row < 10; row++) for (let col = 0; col < 9; col++) {
+    if (board[row][col] === king) return [row, col];
+  }
+  return null;
+}
+
+function pseudoMoves(board, row, col) {
+  const piece = board[row][col];
+  if (!piece) return [];
+  const red = isRed(piece);
+  const type = piece.toLowerCase();
+  const moves = [];
+  const add = (toRow, toCol) => {
+    if (!inBounds(toRow, toCol)) return true;
+    const target = board[toRow][toCol];
+    if (!target) { moves.push([toRow, toCol]); return false; }
+    if (isRed(target) !== red) moves.push([toRow, toCol]);
+    return true;
+  };
+
+  if (type === 'r' || type === 'c') {
+    for (const [dr, dc] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+      let screened = false;
+      for (let r = row + dr, c = col + dc; inBounds(r, c); r += dr, c += dc) {
+        const target = board[r][c];
+        if (type === 'r') {
+          if (add(r, c)) break;
+        } else if (!screened) {
+          if (target) screened = true;
+          else moves.push([r, c]);
+        } else if (target) {
+          if (isRed(target) !== red) moves.push([r, c]);
+          break;
+        }
+      }
+    }
+  } else if (type === 'n') {
+    const jumps = [
+      [2,1,1,0],[2,-1,1,0],[-2,1,-1,0],[-2,-1,-1,0],
+      [1,2,0,1],[-1,2,0,1],[1,-2,0,-1],[-1,-2,0,-1]
+    ];
+    for (const [dr, dc, legR, legC] of jumps) {
+      if (inBounds(row + legR, col + legC) && !board[row + legR][col + legC]) add(row + dr, col + dc);
+    }
+  } else if (type === 'b') {
+    for (const [dr, dc] of [[2,2],[2,-2],[-2,2],[-2,-2]]) {
+      const toRow = row + dr;
+      if ((red && toRow < 5) || (!red && toRow > 4)) continue;
+      const toCol = col + dc;
+      if (inBounds(toRow, toCol) && !board[row + dr / 2][col + dc / 2]) add(toRow, toCol);
+    }
+  } else if (type === 'a') {
+    for (const [dr, dc] of [[1,1],[1,-1],[-1,1],[-1,-1]]) {
+      const r = row + dr, c = col + dc;
+      if (c >= 3 && c <= 5 && (red ? r >= 7 : r <= 2)) add(r, c);
+    }
+  } else if (type === 'k') {
+    for (const [dr, dc] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+      const r = row + dr, c = col + dc;
+      if (c >= 3 && c <= 5 && (red ? r >= 7 : r <= 2)) add(r, c);
+    }
+    for (const direction of [-1, 1]) {
+      for (let r = row + direction; inBounds(r, col); r += direction) {
+        if (board[r][col]) {
+          if (board[r][col] === (red ? 'k' : 'K')) moves.push([r, col]);
+          break;
+        }
+      }
+    }
+  } else if (type === 'p') {
+    const forward = red ? -1 : 1;
+    add(row + forward, col);
+    const crossedRiver = red ? row <= 4 : row >= 5;
+    if (crossedRiver) {
+      add(row, col - 1);
+      add(row, col + 1);
+    }
+  }
+  return moves;
+}
+
+function isSquareAttacked(board, row, col, byRed) {
+  for (let r = 0; r < 10; r++) for (let c = 0; c < 9; c++) {
+    const piece = board[r][c];
+    if (piece && isRed(piece) === byRed && pseudoMoves(board, r, c).some(([toRow, toCol]) => toRow === row && toCol === col)) return true;
+  }
+  return false;
+}
+
+function legalMoves(row, col) {
+  const piece = position.ranks[row][col];
+  if (!piece || isRed(piece) !== (position.turn === 'w')) return [];
+  const ownKing = findGeneral(position.ranks, isRed(piece));
+  if (!ownKing) return [];
+  return pseudoMoves(position.ranks, row, col).filter(([toRow, toCol]) => {
+    const target = position.ranks[toRow][toCol];
+    if (target && target.toLowerCase() === 'k') return false;
+    const next = cloneBoard(position.ranks);
+    next[toRow][toCol] = next[row][col];
+    next[row][col] = '';
+    const king = findGeneral(next, isRed(piece));
+    return king && !isSquareAttacked(next, king[0], king[1], !isRed(piece));
+  });
+}
+
+function buildFen() {
+  const placement = position.ranks.map((rank) => {
+    let empty = 0, row = '';
+    for (const piece of rank) {
+      if (!piece) empty++;
+      else { if (empty) row += empty; row += piece; empty = 0; }
+    }
+    if (empty) row += empty;
+    return row;
+  }).join('/');
+  return `${placement} ${position.turn}`;
+}
+
+function squareLabel(row, col) { return `hàng ${row + 1}, cột ${col + 1}`; }
+function pieceName(piece) { return pieceNames[piece.toLowerCase()] || 'Quân'; }
+
+function refreshStatus() {
+  const redToMove = position.turn === 'w';
+  const king = findGeneral(position.ranks, redToMove);
+  const inCheck = king && isSquareAttacked(position.ranks, king[0], king[1], !redToMove);
+  let available = false;
+  if (king) {
+    outer: for (let row = 0; row < 10; row++) for (let col = 0; col < 9; col++) {
+      const piece = position.ranks[row][col];
+      if (piece && isRed(piece) === redToMove && legalMoves(row, col).length) { available = true; break outer; }
+    }
+  }
+  gameOver = !king || !available;
+  $('#turnLabel').textContent = redToMove ? 'Đỏ đi' : 'Đen đi';
+  $('.turn-dot').style.background = redToMove ? 'var(--red)' : '#383a34';
+  $('#gameStatus').textContent = !king
+    ? 'FEN này thiếu Tướng nên chỉ dùng để tra cứu.'
+    : !available
+      ? `${redToMove ? 'Đỏ' : 'Đen'} hết nước đi${inCheck ? ' — chiếu bí.' : '.'}`
+      : inCheck ? `${redToMove ? 'Đỏ' : 'Đen'} đang bị chiếu.` : 'Chọn quân của bên đang đi.';
+  $('#moveCount').textContent = `Nước ${Math.floor(moveHistory.length / 2) + 1}`;
+  $('#undoBtn').disabled = moveHistory.length === 0;
+}
+
+function renderHistory() {
+  const list = $('#historyList');
+  const empty = $('#historyEmpty');
+  empty.hidden = moveHistory.length > 0;
+  list.hidden = moveHistory.length === 0;
+  list.innerHTML = [...moveHistory].reverse().map((move, index) => {
+    const number = moveHistory.length - index;
+    const side = move.red ? 'Đỏ' : 'Đen';
+    return `<li><span class="history-number">${String(number).padStart(2, '0')}</span><span class="history-side ${move.red ? 'red' : 'black'}">${side}</span><span class="history-move">${move.name}: ${squareLabel(...move.from)} → ${squareLabel(...move.to)}</span>${move.captured ? `<span class="history-capture">Ăn ${pieceName(move.captured)}</span>` : ''}</li>`;
+  }).join('');
+  refreshStatus();
+}
+
 function drawBoard() {
   const canvas = $('#boardCanvas');
   const lines = [];
@@ -39,20 +206,80 @@ function drawBoard() {
   const svg = `<svg class="board-svg" viewBox="-0.35 -0.35 8.7 9.7" preserveAspectRatio="none" aria-hidden="true">${lines.join('')}</svg>`;
   const squares = [];
   for (let y = 0; y < 10; y++) for (let x = 0; x < 9; x++) {
-    const rank = flipped ? 9 - y : y;
-    const file = flipped ? 8 - x : x;
-    const piece = position.ranks[rank]?.[file] || '';
-    squares.push(`<div class="piece-cell">${piece ? `<span class="piece ${piece === piece.toLowerCase() ? 'black' : ''}" title="${piece}">${glyphs[piece]}</span>` : ''}</div>`);
+    const row = flipped ? 9 - y : y;
+    const col = flipped ? 8 - x : x;
+    const piece = position.ranks[row]?.[col] || '';
+    const selected = selectedSquare && selectedSquare[0] === row && selectedSquare[1] === col;
+    const destination = selectedMoves.find(([toRow, toCol]) => toRow === row && toCol === col);
+    const classes = ['piece-cell'];
+    if (selected) classes.push('selected');
+    if (destination) classes.push('legal-target', piece ? 'capture-target' : '');
+    const sideLabel = piece ? `${isRed(piece) ? 'Đỏ' : 'Đen'} ${pieceName(piece)}` : 'Ô trống';
+    squares.push(`<button type="button" class="${classes.filter(Boolean).join(' ')}" data-row="${row}" data-col="${col}" aria-label="${sideLabel}, ${squareLabel(row, col)}">${piece ? `<span class="piece ${isRed(piece) ? '' : 'black'}" aria-hidden="true">${glyphs[piece]}</span>` : ''}</button>`);
   }
   canvas.innerHTML = svg + `<div class="pieces">${squares.join('')}</div>`;
-  $('#turnLabel').textContent = position.turn === 'w' ? 'Đỏ đi' : 'Đen đi';
-  $('.turn-dot').style.background = position.turn === 'w' ? 'var(--red)' : '#383a34';
+  refreshStatus();
 }
 
 function setFen(fen) {
   position = parseFen(fen);
+  moveHistory = [];
+  selectedSquare = null;
+  selectedMoves = [];
   $('#fenInput').value = fen.trim();
   drawBoard();
+  renderHistory();
+}
+
+function makeMove(from, to) {
+  const [row, col] = from, [toRow, toCol] = to;
+  const piece = position.ranks[row][col];
+  const captured = position.ranks[toRow][toCol];
+  moveHistory.push({
+    before: { ranks: cloneBoard(position.ranks), turn: position.turn },
+    from, to, piece, captured, red: isRed(piece), name: pieceName(piece)
+  });
+  position.ranks[toRow][toCol] = piece;
+  position.ranks[row][col] = '';
+  position.turn = position.turn === 'w' ? 'b' : 'w';
+  selectedSquare = null;
+  selectedMoves = [];
+  $('#fenInput').value = buildFen();
+  drawBoard();
+  renderHistory();
+}
+
+function handleSquareClick(row, col) {
+  if (gameOver) return;
+  const piece = position.ranks[row][col];
+  if (selectedSquare) {
+    if (selectedMoves.some(([r, c]) => r === row && c === col)) {
+      makeMove(selectedSquare, [row, col]);
+      return;
+    }
+    if (piece && isRed(piece) === (position.turn === 'w')) {
+      selectedSquare = [row, col];
+      selectedMoves = legalMoves(row, col);
+    } else {
+      selectedSquare = null;
+      selectedMoves = [];
+    }
+  } else if (piece && isRed(piece) === (position.turn === 'w')) {
+    selectedSquare = [row, col];
+    selectedMoves = legalMoves(row, col);
+  }
+  drawBoard();
+}
+
+function undoMove() {
+  const last = moveHistory.pop();
+  if (!last) return;
+  position = last.before;
+  selectedSquare = null;
+  selectedMoves = [];
+  $('#fenInput').value = buildFen();
+  drawBoard();
+  renderHistory();
 }
 
 function showEmpty(message, error = false) {
@@ -64,8 +291,8 @@ function showEmpty(message, error = false) {
 function parseMoves(raw) {
   if (!raw || ['unknown', 'checkmate', 'stalemate', 'nobestmove'].includes(raw)) return [];
   return raw.split('|').filter(Boolean).map((entry) => {
-    const fields = Object.fromEntries(entry.split(',').map((v) => {
-      const i = v.indexOf(':'); return i < 0 ? [v, ''] : [v.slice(0, i), v.slice(i + 1)];
+    const fields = Object.fromEntries(entry.split(',').map((value) => {
+      const index = value.indexOf(':'); return index < 0 ? [value, ''] : [value.slice(0, index), value.slice(index + 1)];
     }));
     return fields;
   });
@@ -86,7 +313,7 @@ async function analyze() {
       const moves = parseMoves(raw);
       if (!moves.length) return showEmpty(raw === 'unknown' ? 'CDB chưa có dữ liệu cho thế cờ này.' : `CDB trả về: ${raw || 'chưa có dữ liệu'}`);
       results.className = 'results';
-      results.innerHTML = moves.slice(0, 12).map((m, i) => `<div class="move-result"><span class="rank">${String(i + 1).padStart(2, '0')}</span><strong>${m.move || '—'}</strong><span>${m.score ? `Điểm ${m.score}` : m.winrate ? `Thắng ${m.winrate}%` : m.rank ? `Hạng ${m.rank}` : 'Đã ghi nhận'}</span></div>`).join('');
+      results.innerHTML = moves.slice(0, 12).map((move, index) => `<div class="move-result"><span class="rank">${String(index + 1).padStart(2, '0')}</span><strong>${escapeHtml(move.move || '—')}</strong><span>${move.score ? `Điểm ${escapeHtml(move.score)}` : move.winrate ? `Thắng ${escapeHtml(move.winrate)}%` : move.rank ? `Hạng ${escapeHtml(move.rank)}` : 'Đã ghi nhận'}</span></div>`).join('');
     } else {
       results.className = 'results';
       results.innerHTML = `<div class="raw-result">${escapeHtml(raw || 'CDB chưa có dữ liệu cho thế cờ này.')}</div>`;
@@ -99,8 +326,12 @@ async function analyze() {
   }
 }
 
-function escapeHtml(value) { return value.replace(/[&<>"']/g, (c) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' })[c]); }
+function escapeHtml(value) { return String(value).replace(/[&<>"']/g, (char) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' })[char]); }
 
+$('#boardCanvas').addEventListener('click', (event) => {
+  const square = event.target.closest('.piece-cell');
+  if (square) handleSquareClick(Number(square.dataset.row), Number(square.dataset.col));
+});
 document.querySelectorAll('.tab').forEach((button) => button.addEventListener('click', () => {
   document.querySelector('.tab.active')?.classList.remove('active');
   button.classList.add('active');
@@ -111,6 +342,17 @@ document.querySelectorAll('.tab').forEach((button) => button.addEventListener('c
 }));
 $('#analyzeBtn').addEventListener('click', analyze);
 $('#flipBtn').addEventListener('click', () => { flipped = !flipped; drawBoard(); });
-$('#loadFenBtn').addEventListener('click', () => { try { setFen($('#fenInput').value); showEmpty('Đã tải vị trí. Chọn chế độ phân tích để tra cứu.'); } catch (error) { showEmpty(error.message, true); } });
-$('#resetBtn').addEventListener('click', () => { setFen(START_FEN); mode = 'moves'; document.querySelectorAll('.tab').forEach((b) => b.classList.toggle('active', b.dataset.mode === mode)); $('#analysisTitle').textContent = modeCopy.moves[1]; $('#resultKicker').textContent = modeCopy.moves[0]; showEmpty('Chọn một chế độ để tra cứu thế cờ hiện tại.'); });
+$('#undoBtn').addEventListener('click', undoMove);
+$('#loadFenBtn').addEventListener('click', () => {
+  try { setFen($('#fenInput').value); showEmpty('Đã tải vị trí. Chọn quân để bắt đầu ván.'); }
+  catch (error) { showEmpty(error.message, true); }
+});
+$('#resetBtn').addEventListener('click', () => {
+  setFen(START_FEN);
+  mode = 'moves';
+  document.querySelectorAll('.tab').forEach((button) => button.classList.toggle('active', button.dataset.mode === mode));
+  $('#analysisTitle').textContent = modeCopy.moves[1];
+  $('#resultKicker').textContent = modeCopy.moves[0];
+  showEmpty('Chọn một chế độ để tra cứu thế cờ hiện tại.');
+});
 try { setFen(START_FEN); } catch (error) { showEmpty(error.message, true); }
