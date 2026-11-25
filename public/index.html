@@ -23,6 +23,7 @@
           <div class="board-heading"><div><span class="section-kicker">THẾ CỜ HIỆN TẠI</span><strong>Ván cờ của bạn</strong></div><button class="icon-button" id="flipBtn" title="Lật bàn cờ" aria-label="Lật bàn cờ">↻</button></div>
           <div class="board-wrap"><div id="boardCanvas" class="board-canvas" aria-label="Bàn cờ tướng"></div><div class="rank-labels" id="rankLabels" aria-hidden="true"></div><div class="file-labels" id="fileLabels" aria-hidden="true"></div></div>
           <div class="board-controls"><label for="playerSide">Bạn cầm quân</label><select id="playerSide" aria-label="Chọn bên người chơi"><option value="w">Đỏ</option><option value="b">Đen</option></select><button class="text-button" id="playComputerBtn" type="button">Chơi với máy</button></div>
+          <div class="ai-controls" aria-label="Điều khiển máy tự đi"><span>Máy tự đi</span><button id="aiRedBtn" type="button" aria-pressed="false">Đỏ</button><button id="aiBlackBtn" type="button" aria-pressed="false">Đen</button><small id="aiModeHint">Bật từng bên để xem máy tự đấu.</small></div>
           <div class="turn-row"><span class="turn-dot"></span><span id="turnLabel">Đỏ đi</span><span class="move-count" id="moveCount">Nước 1</span></div>
           <p class="game-status" id="gameStatus" aria-live="polite">Chọn quân của bên đang đi.</p>
         </div>
@@ -33,7 +34,7 @@
             <div id="results" class="results empty"><span class="empty-glyph">象</span><span>Kết quả phân tích sẽ hiển thị tại đây</span></div>
             <button id="analyzeBtn" class="primary"><span>⌕</span> Phân tích bằng engine</button>
           </div>
-          <div class="fen-box"><label for="fenInput">VỊ TRÍ FEN <span>·</span> XIXIANGQI FORMAT</label><div class="fen-row"><input id="fenInput" spellcheck="false" value="rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w"/><button id="loadFenBtn" title="Tải vị trí FEN">↵</button></div></div>
+          <div class="fen-box"><label for="fenInput">VỊ TRÍ FEN <span>·</span> XIXIANGQI FORMAT</label><div class="fen-row"><input id="fenInput" spellcheck="false" value="rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w"/><button id="loadFenBtn" title="Tải vị trí FEN" aria-label="Tải vị trí FEN">↵</button></div><div class="fen-tools"><button id="copyFenBtn" type="button">Sao chép FEN</button><button id="sharePositionBtn" type="button">Chia sẻ vị trí</button><button id="toggleTurnBtn" type="button">Đổi lượt đi</button></div></div>
         </aside>
       </section>
       <section class="lower-grid">

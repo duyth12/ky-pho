@@ -71,6 +71,16 @@ body,button,input{font-family:'Be Vietnam Pro',system-ui,sans-serif}
 .board-controls{display:flex;justify-content:flex-end;align-items:center;gap:9px;margin:5px auto 12px;max-width:440px;color:#89857b;font-size:10px}
 .board-controls select{border:1px solid #e8e5de;border-radius:3px;background:#fffefa;color:#514f48;padding:5px 7px;font:10px 'Be Vietnam Pro',sans-serif}
 .board-controls button{border:1px solid #e7d6ca;border-radius:3px;padding:6px 10px;background:#f9eee7;color:#9e4a37;font-weight:600}
+.ai-controls{display:flex;justify-content:flex-end;align-items:center;gap:6px;max-width:440px;margin:-4px auto 11px;color:#89857b;font-size:10px}
+.ai-controls>span{margin-right:2px}
+.ai-controls button,.fen-tools button{border:1px solid #e8e5de;border-radius:3px;padding:5px 8px;background:#fffefa;color:#77746a;font:10px 'Be Vietnam Pro',sans-serif;cursor:pointer}
+.ai-controls button.active{border-color:#d8b3a4;background:#f9eee7;color:#9e4a37;font-weight:700}
+.ai-controls button:disabled,.fen-tools button:disabled{opacity:.55;cursor:not-allowed}
+.ai-controls small{color:#aaa69e;font-size:9px;margin-left:3px}
+.fen-tools{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.fen-tools button{font-size:9px;padding:5px 7px}
+.fen-tools button:hover,.ai-controls button:hover:not(:disabled){border-color:#d8c5a5;background:#fffaf0}
+.fen-tools button:disabled{background:#f7f5f0}
 .history-list li{grid-template-columns:28px 34px minmax(0,1fr) auto;}
 .history-grade{grid-column:4;color:#547b62;font-size:9px;white-space:nowrap}
-@media(max-width:480px){.board-wrap{grid-template-columns:minmax(0,1fr) 18px;gap:0 3px}.rank-labels,.file-labels{font-size:8px}.board-controls{justify-content:center;margin-bottom:10px}.history-list li{grid-template-columns:22px 28px minmax(0,1fr);gap:5px}.history-grade{grid-column:3;grid-row:2}.history-capture{grid-column:3;grid-row:3}}
+@media(max-width:480px){.board-wrap{grid-template-columns:minmax(0,1fr) 18px;gap:0 3px}.rank-labels,.file-labels{font-size:8px}.board-controls{justify-content:center;margin-bottom:10px}.ai-controls{justify-content:center;flex-wrap:wrap}.ai-controls small{flex-basis:100%;text-align:center}.fen-tools{gap:5px}.fen-tools button{flex:1}.history-list li{grid-template-columns:22px 28px minmax(0,1fr);gap:5px}.history-grade{grid-column:3;grid-row:2}.history-capture{grid-column:3;grid-row:3}}

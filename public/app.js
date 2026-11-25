@@ -18,6 +18,7 @@ let analysisSuggestion = null;
 let isComputerGame = false;
 let playerSide = 'w';
 let computerThinking = false;
+let engineSides = new Set();
 const evaluationCache = new Map();
 let engineQueue = Promise.resolve();
 let enginePromise = null;
@@ -266,6 +267,22 @@ function refreshStatus() {
   $('#undoBtn').disabled = moveHistory.length === 0;
   $('#playerSide').disabled = isComputerGame;
   $('#playComputerBtn').textContent = isComputerGame ? 'Dừng chơi với máy' : 'Chơi với máy';
+  $('#aiRedBtn').disabled = isComputerGame;
+  $('#aiBlackBtn').disabled = isComputerGame;
+  $('#toggleTurnBtn').disabled = isComputerGame || computerThinking;
+  $('#aiRedBtn').setAttribute('aria-pressed', String(engineSides.has('w')));
+  $('#aiBlackBtn').setAttribute('aria-pressed', String(engineSides.has('b')));
+  $('#aiRedBtn').classList.toggle('active', engineSides.has('w'));
+  $('#aiBlackBtn').classList.toggle('active', engineSides.has('b'));
+  $('#aiModeHint').textContent = engineSides.size === 2
+    ? 'Hai bên đang tự chơi.'
+    : engineSides.has('w') ? 'Máy tự đi bên Đỏ.'
+      : engineSides.has('b') ? 'Máy tự đi bên Đen.'
+        : 'Bật từng bên để xem máy tự đấu.';
+}
+
+function isEngineTurn() {
+  return (isComputerGame && position.turn !== playerSide) || engineSides.has(position.turn);
 }
 
 function renderHistory() {
@@ -329,6 +346,7 @@ function drawBoard() {
 function setFen(fen) {
   isComputerGame = false;
   computerThinking = false;
+  engineSides.clear();
   position = parseFen(fen);
   moveHistory = [];
   selectedSquare = null;
@@ -358,11 +376,11 @@ function makeMove(from, to) {
   drawBoard();
   renderHistory();
   void gradeMove(record, buildFen());
-  if (isComputerGame && position.turn !== playerSide) void playComputerTurn();
+  if (isEngineTurn()) void playComputerTurn();
 }
 
 function handleSquareClick(row, col) {
-  if (gameOver || computerThinking || (isComputerGame && position.turn !== playerSide)) return;
+  if (gameOver || computerThinking || isEngineTurn()) return;
   const piece = position.ranks[row][col];
   if (selectedSquare) {
     if (selectedMoves.some(([r, c]) => r === row && c === col)) {
@@ -604,13 +622,16 @@ async function gradeMove(record, afterFen) {
 }
 
 async function playComputerTurn() {
-  if (!isComputerGame || gameOver || position.turn === playerSide || computerThinking) return;
+  if (!isEngineTurn() || gameOver || computerThinking) return;
   computerThinking = true;
+  refreshStatus();
   $('#gameStatus').textContent = 'Máy đang suy nghĩ…';
   const fen = buildFen();
+  let failed = false;
+  let failureMessage = '';
   try {
     const result = await searchEngine(fen, 10, 1);
-    if (!isComputerGame || buildFen() !== fen || !result.bestMove || result.bestMove === '(none)') return;
+    if (!isEngineTurn() || buildFen() !== fen || !result.bestMove || result.bestMove === '(none)') return;
     const move = parseUciMove(result.bestMove, 'engine');
     if (!move) throw new Error('Máy trả về nước đi không đọc được.');
     const piece = position.ranks[move.from[0]]?.[move.from[1]];
@@ -619,11 +640,43 @@ async function playComputerTurn() {
     }
     makeMove(move.from, move.to);
   } catch (error) {
-    $('#gameStatus').textContent = `Không đi được nước máy: ${error.message}`;
+    failed = true;
+    failureMessage = `Không đi được nước máy: ${error.message}`;
   } finally {
     computerThinking = false;
-    if (isComputerGame && position.turn === playerSide && !gameOver) $('#gameStatus').textContent = 'Đến lượt bạn.';
+    refreshStatus();
+    if (failed) $('#gameStatus').textContent = failureMessage;
+    else if (isComputerGame && position.turn === playerSide && !gameOver) $('#gameStatus').textContent = 'Đến lượt bạn.';
+    else if (!failed && !gameOver && isEngineTurn()) window.setTimeout(() => void playComputerTurn(), 80);
+    else if (!gameOver && !isComputerGame) $('#gameStatus').textContent = `Đến lượt ${position.turn === 'w' ? 'Đỏ' : 'Đen'}.`;
   }
+}
+
+async function copyText(text) {
+  if (navigator.clipboard?.writeText) return navigator.clipboard.writeText(text);
+  const field = document.createElement('textarea');
+  field.value = text;
+  field.style.position = 'fixed';
+  field.style.opacity = '0';
+  document.body.append(field);
+  field.select();
+  const copied = document.execCommand('copy');
+  field.remove();
+  if (!copied) throw new Error('Trình duyệt không cho phép sao chép.');
+}
+
+function setTurn(turn) {
+  position.turn = turn;
+  moveHistory = [];
+  selectedSquare = null;
+  selectedMoves = [];
+  analysisSuggestion = null;
+  evaluationCache.clear();
+  $('#fenInput').value = buildFen();
+  drawBoard();
+  renderHistory();
+  showEmpty(`Đã đặt lượt ${turn === 'w' ? 'Đỏ' : 'Đen'}. Thế cờ hiện tại là điểm bắt đầu phân tích mới.`);
+  if (isEngineTurn()) void playComputerTurn();
 }
 
 function parseUciMove(uci, notation = 'cdb') {
@@ -748,6 +801,25 @@ document.querySelectorAll('.tab').forEach((button) => button.addEventListener('c
 $('#analyzeBtn').addEventListener('click', analyze);
 $('#flipBtn').addEventListener('click', () => { flipped = !flipped; drawBoard(); });
 $('#undoBtn').addEventListener('click', undoMove);
+$('#copyFenBtn').addEventListener('click', async () => {
+  try {
+    await copyText(buildFen());
+    $('#gameStatus').textContent = 'Đã sao chép FEN của thế cờ hiện tại.';
+  } catch (error) { $('#gameStatus').textContent = error.message; }
+});
+$('#sharePositionBtn').addEventListener('click', async () => {
+  try {
+    const url = new URL(window.location.href);
+    url.search = '';
+    url.hash = 'board';
+    url.searchParams.set('fen', buildFen());
+    await copyText(url.toString());
+    $('#gameStatus').textContent = 'Đã sao chép liên kết; mở liên kết sẽ tải đúng thế cờ và lượt đi.';
+  } catch (error) { $('#gameStatus').textContent = error.message; }
+});
+$('#toggleTurnBtn').addEventListener('click', () => setTurn(position.turn === 'w' ? 'b' : 'w'));
+$('#aiRedBtn').addEventListener('click', () => toggleEngineSide('w'));
+$('#aiBlackBtn').addEventListener('click', () => toggleEngineSide('b'));
 $('#playComputerBtn').addEventListener('click', () => {
   if (isComputerGame) {
     isComputerGame = false;
@@ -772,6 +844,13 @@ $('#loadFenBtn').addEventListener('click', () => {
   try { setFen($('#fenInput').value); showEmpty('Đã tải vị trí. Chọn quân để bắt đầu ván.'); }
   catch (error) { showEmpty(error.message, true); }
 });
+function toggleEngineSide(side) {
+  if (engineSides.has(side)) engineSides.delete(side);
+  else engineSides.add(side);
+  refreshStatus();
+  if (isEngineTurn()) void playComputerTurn();
+  else if (!isComputerGame) $('#gameStatus').textContent = `Máy sẽ tự đi cho ${side === 'w' ? 'Đỏ' : 'Đen'} khi đến lượt.`;
+}
 $('#resetBtn').addEventListener('click', () => {
   isComputerGame = false;
   computerThinking = false;
@@ -785,4 +864,8 @@ $('#resetBtn').addEventListener('click', () => {
   $('#analyzeBtn').innerHTML = '<span>⌕</span> Phân tích bằng engine';
   showEmpty('Bấm “Phân tích bằng engine” để bắt đầu.');
 });
-try { setFen(START_FEN); showEmpty('Bấm “Phân tích bằng engine” để bắt đầu.'); } catch (error) { showEmpty(error.message, true); }
+try {
+  const sharedFen = new URLSearchParams(window.location.search).get('fen');
+  setFen(sharedFen || START_FEN);
+  showEmpty(sharedFen ? 'Đã mở thế cờ được chia sẻ. Chọn quân hoặc phân tích vị trí này.' : 'Bấm “Phân tích bằng engine” để bắt đầu.');
+} catch (error) { setFen(START_FEN); showEmpty(`Liên kết thế cờ không hợp lệ: ${error.message}`, true); }
