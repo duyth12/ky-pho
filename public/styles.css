@@ -92,3 +92,13 @@ body,button,input{font-family:'Be Vietnam Pro',system-ui,sans-serif}
 /* Keep both sides' CJK piece glyphs on the same visual center. */
 .piece{display:grid;place-items:center;line-height:1;padding:0}
 .piece-glyph{display:block;line-height:1;font-family:'Noto Serif SC','Microsoft YaHei',serif;font-size:1em;transform:translateY(-.035em)}
+.preview-variation{display:inline-block;margin-top:8px;padding:4px 0;color:#9e4a37}
+.variation-controls{position:sticky;bottom:0;padding:12px;background:#fffefa;border:1px solid #d9d1c1;border-left:3px solid var(--green);border-radius:3px;box-shadow:0 -5px 14px #3e342012}
+.variation-controls[hidden]{display:none}
+.variation-controls-head{display:flex;justify-content:space-between;gap:10px;align-items:center;color:#55534d;font-size:10px}
+.variation-controls-head strong{font:600 11px 'Noto Serif',Georgia,serif}
+.variation-controls-head span{color:#8b877c;font:9px 'IBM Plex Mono',monospace}
+.variation-controls-actions{display:flex;gap:7px;margin-top:9px}
+.variation-controls-actions button{padding:6px 9px;border:1px solid #e8e5de;border-radius:3px;background:#faf9f5;color:#5e5a50;font:10px 'Be Vietnam Pro',sans-serif;cursor:pointer}
+.variation-controls-actions button:hover:not(:disabled){border-color:#d8c5a5;background:#fffaf0}
+.variation-controls-actions button:disabled{opacity:.5;cursor:not-allowed}

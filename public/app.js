@@ -15,6 +15,7 @@ let selectedMoves = [];
 let moveHistory = [];
 let gameOver = false;
 let analysisSuggestion = null;
+let analysisPreview = null;
 let isComputerGame = false;
 let playerSide = 'w';
 let computerThinking = false;
@@ -300,6 +301,7 @@ function renderHistory() {
 
 function drawBoard() {
   const canvas = $('#boardCanvas');
+  const displayRanks = analysisPreview?.states[analysisPreview.index]?.ranks || position.ranks;
   const lines = [];
   for (let x = 0; x < 9; x++) {
     if (x === 0 || x === 8) lines.push(`<line x1="${x}" y1="0" x2="${x}" y2="9"/>`);
@@ -311,9 +313,11 @@ function drawBoard() {
   for (let y = 0; y <= 9; y++) lines.push(`<line x1="0" y1="${y}" x2="8" y2="${y}"/>`);
   lines.push('<rect class="border" x="0" y="0" width="8" height="9"/>');
   lines.push('<rect x="3" y="0" width="2" height="2"/><rect x="3" y="7" width="2" height="2"/>');
-  if (analysisSuggestion) {
-    const [fromRow, fromCol] = analysisSuggestion.from;
-    const [toRow, toCol] = analysisSuggestion.to;
+  const previewMove = analysisPreview?.index > 0 ? parseUciMove(analysisPreview.moves[analysisPreview.index - 1], 'engine') : null;
+  const arrowMove = previewMove || (!analysisPreview ? analysisSuggestion : null);
+  if (arrowMove) {
+    const [fromRow, fromCol] = arrowMove.from;
+    const [toRow, toCol] = arrowMove.to;
     const x1 = flipped ? 8 - fromCol : fromCol;
     const y1 = flipped ? 9 - fromRow : fromRow;
     const x2 = flipped ? 8 - toCol : toCol;
@@ -326,7 +330,7 @@ function drawBoard() {
   for (let y = 0; y < 10; y++) for (let x = 0; x < 9; x++) {
     const row = flipped ? 9 - y : y;
     const col = flipped ? 8 - x : x;
-    const piece = position.ranks[row]?.[col] || '';
+    const piece = displayRanks[row]?.[col] || '';
     const selected = selectedSquare && selectedSquare[0] === row && selectedSquare[1] === col;
     const destination = selectedMoves.find(([toRow, toCol]) => toRow === row && toCol === col);
     const classes = ['piece-cell'];
@@ -341,6 +345,17 @@ function drawBoard() {
   $('#fileLabels').innerHTML = (flipped ? fileOrder.reverse() : fileOrder).map((label) => `<span>${label}</span>`).join('');
   $('#rankLabels').innerHTML = (flipped ? rankOrder.reverse() : rankOrder).map((label) => `<span>${label}</span>`).join('');
   refreshStatus();
+  if (analysisPreview) {
+    const sideToMove = analysisPreview.states[analysisPreview.index]?.turn === 'w' ? 'Đỏ' : 'Đen';
+    $('#gameStatus').textContent = `Đang xem biến phương án ${analysisPreview.line + 1}: ${analysisPreview.index}/${analysisPreview.moves.length} nước đã đi · đến lượt ${sideToMove}.`;
+    $('#turnLabel').textContent = `${sideToMove} đi · xem biến`;
+    $('#variationControls').hidden = false;
+    $('#variationProgress').textContent = `Vị trí ${analysisPreview.index}/${analysisPreview.moves.length}`;
+    $('#variationPrev').disabled = analysisPreview.index === 0;
+    $('#variationNext').disabled = analysisPreview.index >= analysisPreview.moves.length;
+  } else if ($('#variationControls')) {
+    $('#variationControls').hidden = true;
+  }
 }
 
 function setFen(fen) {
@@ -352,6 +367,7 @@ function setFen(fen) {
   selectedSquare = null;
   selectedMoves = [];
   analysisSuggestion = null;
+  analysisPreview = null;
   evaluationCache.clear();
   $('#fenInput').value = fen.trim();
   drawBoard();
@@ -359,6 +375,7 @@ function setFen(fen) {
 }
 
 function makeMove(from, to) {
+  analysisPreview = null;
   const [row, col] = from, [toRow, toCol] = to;
   const piece = position.ranks[row][col];
   const captured = position.ranks[toRow][toCol];
@@ -380,7 +397,7 @@ function makeMove(from, to) {
 }
 
 function handleSquareClick(row, col) {
-  if (gameOver || computerThinking || isEngineTurn()) return;
+  if (analysisPreview || gameOver || computerThinking || isEngineTurn()) return;
   const piece = position.ranks[row][col];
   if (selectedSquare) {
     if (selectedMoves.some(([r, c]) => r === row && c === col)) {
@@ -402,6 +419,7 @@ function handleSquareClick(row, col) {
 }
 
 function undoMove() {
+  analysisPreview = null;
   if (!moveHistory.length) return;
   let removeCount = 1;
   if (isComputerGame && moveHistory.at(-1)?.red !== (playerSide === 'w') && moveHistory.length > 1) removeCount = 2;
@@ -614,10 +632,27 @@ async function evaluateFen(fen) {
 
 async function gradeMove(record, afterFen) {
   try {
-    const [beforeScore, afterScore] = await Promise.all([evaluateFen(record.beforeFen), evaluateFen(afterFen)]);
-    const gainForMover = (afterScore - beforeScore) * (record.red ? 1 : -1);
-    record.grade = `${moveGrade(gainForMover)} · ${gainForMover >= 0 ? '+' : ''}${(gainForMover / 100).toFixed(1)}`;
-    record.reason += ` Điểm theo bên đi: ${(beforeScore * (record.red ? 1 : -1) / 100).toFixed(1)} → ${(afterScore * (record.red ? 1 : -1) / 100).toFixed(1)}; thay đổi ${(gainForMover >= 0 ? '+' : '')}${(gainForMover / 100).toFixed(1)} điểm engine.`;
+    const [beforeAnalysis, afterScore] = await Promise.all([searchEngine(record.beforeFen, 8, 2), evaluateFen(afterFen)]);
+    const bestLine = beforeAnalysis.lines[0];
+    const bestBeforeScore = scoreToRed(bestLine, record.beforeFen);
+    if (bestBeforeScore === null) throw new Error('Engine chưa chấm được nước đi tốt nhất.');
+    const moverSign = record.red ? 1 : -1;
+    const lossForMover = (bestBeforeScore - afterScore) * moverSign;
+    const loss = Math.max(0, lossForMover);
+    record.grade = `${moveGrade(-loss)} · ${loss < 1 ? '±0.0' : `-${(loss / 100).toFixed(1)}`}`;
+    const beforeForMover = bestBeforeScore * moverSign;
+    const afterForMover = afterScore * moverSign;
+    record.reason += ` Điểm theo bên đi: ${ (beforeForMover / 100).toFixed(1)} → ${(afterForMover / 100).toFixed(1)}; chênh lệch ước tính so với lựa chọn tốt nhất ${loss < 1 ? 'gần như không đáng kể' : `-${(loss / 100).toFixed(1)} điểm`}.`;
+    const actualUci = `${String.fromCharCode(97 + record.from[1])}${10 - record.from[0]}${String.fromCharCode(97 + record.to[1])}${10 - record.to[0]}`;
+    if (bestBeforeScore !== null && beforeAnalysis.bestMove && beforeAnalysis.bestMove !== actualUci && loss >= 35) {
+      const alternative = explainEngineMove(beforeAnalysis.bestMove, record.before.ranks, record.before.turn, 'engine');
+      record.reason += ` Engine đề xuất ${alternative.label} thay vì nước đã đi${alternative.clue ? ` (${alternative.clue})` : ''}.`;
+    } else if (bestBeforeScore !== null && loss < 35) {
+      record.reason += ' Nước đã đi gần điểm với phương án engine tốt nhất ở độ sâu kiểm tra này.';
+    }
+    if (bestLine?.pv?.length > 1) {
+      record.reason += ` Biến tham khảo: ${formatPrincipalVariation(bestLine.pv.slice(0, 3), record.before.ranks, record.before.turn, 'engine')}.`;
+    }
   } catch {
     record.grade = 'Chưa chấm được';
   }
@@ -669,6 +704,7 @@ async function copyText(text) {
 }
 
 function setTurn(turn) {
+  analysisPreview = null;
   position.turn = turn;
   moveHistory = [];
   selectedSquare = null;
@@ -776,12 +812,37 @@ function formatPrincipalVariation(pv, sourceBoard, startingTurn, notation = 'cdb
   }).join('  ·  ');
 }
 
+function beginVariationPreview(pv, line) {
+  const moves = [];
+  const states = [{ ranks: cloneBoard(position.ranks), turn: position.turn }];
+  let board = cloneBoard(position.ranks);
+  let turn = position.turn;
+  for (const uci of pv) {
+    const move = parseUciMove(uci, 'engine');
+    if (!move) break;
+    const [fromRow, fromCol] = move.from;
+    const [toRow, toCol] = move.to;
+    const piece = board[fromRow]?.[fromCol];
+    if (!piece || isRed(piece) !== (turn === 'w')) break;
+    board[toRow][toCol] = piece;
+    board[fromRow][fromCol] = '';
+    moves.push(uci);
+    turn = turn === 'w' ? 'b' : 'w';
+    states.push({ ranks: cloneBoard(board), turn });
+  }
+  if (!moves.length) return;
+  analysisPreview = { moves, states, index: 0, line };
+  drawBoard();
+}
+
 function scoreText(info) {
   if (info.unit === 'mate') return `mate ${info.value > 0 ? '+' : ''}${info.value} · engine dự báo chiếu bí`;
   return `${info.value > 0 ? '+' : ''}${(info.value / 100).toFixed(2)} điểm engine`;
 }
 
 async function analyzeWithEngine(button) {
+  analysisPreview = null;
+  drawBoard();
   button.disabled = true;
   button.textContent = 'Đang khởi động engine…';
   $('#sourcePill').textContent = 'FAIRY-STOCKFISH';
@@ -807,8 +868,8 @@ async function analyzeWithEngine(button) {
     results.innerHTML = `<div class="engine-best"><span class="section-kicker">NƯỚC TỐT NHẤT CHO ${position.turn === 'w' ? 'ĐỎ' : 'ĐEN'} · ĐỘ SÂU ${best.depth}</span><strong>${escapeHtml(first.label)}</strong><small>${escapeHtml(scoreText(best))}</small><p><b>Tác động trên bàn:</b> ${escapeHtml(first.clue)}</p><p><b>Engine dự kiến:</b> ${escapeHtml(formatPrincipalVariation(best.pv.slice(0, 4), position.ranks, position.turn, 'engine'))}. Đây là biến tìm được ở độ sâu trên, không phải lời giải duy nhất.</p><button class="text-button try-engine-move" type="button">Thử nước này trên bàn cờ ↗</button></div><div class="engine-lines">${result.lines.map((info, index) => {
       const moveText = formatPrincipalVariation(info.pv, position.ranks, position.turn, 'engine');
       const lineFirst = explainEngineMove(info.pv[0], position.ranks, position.turn, 'engine');
-      return `<div class="engine-line"><div class="engine-line-head"><span>Phương án ${index + 1} · ${escapeHtml(lineFirst.label)}</span><b>${escapeHtml(scoreText(info))}</b></div><p>${escapeHtml(lineFirst.clue)}</p><p class="pv-line">${escapeHtml(moveText)}</p></div>`;
-    }).join('')}</div>`;
+      return `<div class="engine-line"><div class="engine-line-head"><span>Phương án ${index + 1} · ${escapeHtml(lineFirst.label)}</span><b>${escapeHtml(scoreText(info))}</b></div><p>${escapeHtml(lineFirst.clue)}</p><p class="pv-line">${escapeHtml(moveText)}</p><button class="text-button preview-variation" type="button" data-pv-index="${index}">Xem từng nước trên bàn cờ ↗</button></div>`;
+    }).join('')}</div><div class="variation-controls" id="variationControls" hidden><div class="variation-controls-head"><strong>Đang xem biến engine</strong><span id="variationProgress"></span></div><div class="variation-controls-actions"><button type="button" id="variationPrev">← Lùi</button><button type="button" id="variationNext">Tiếp →</button><button type="button" id="variationClose">Đóng biến</button></div></div>`;
     $('#hint').textContent = 'Điểm số dùng thang riêng của engine; các phương án là biến dự kiến, không phải lời giải thích chắc chắn cho mọi ý đồ chiến thuật.';
     results.querySelector('.try-engine-move')?.addEventListener('click', () => {
       const piece = bestMove && position.ranks[bestMove.from[0]]?.[bestMove.from[1]];
@@ -817,6 +878,21 @@ async function analyzeWithEngine(button) {
       makeMove(bestMove.from, bestMove.to);
       $('#hint').textContent = 'Bạn đã thử nước engine gợi ý. Phân tích lại để xem cách đối phương có thể đáp trả.';
     });
+    results.querySelectorAll('.preview-variation').forEach((previewButton) => previewButton.addEventListener('click', () => {
+      const lineIndex = Number(previewButton.dataset.pvIndex);
+      beginVariationPreview(result.lines[lineIndex]?.pv || [], lineIndex);
+    }));
+    results.querySelector('#variationPrev')?.addEventListener('click', () => {
+      if (!analysisPreview) return;
+      analysisPreview.index = Math.max(0, analysisPreview.index - 1);
+      drawBoard();
+    });
+    results.querySelector('#variationNext')?.addEventListener('click', () => {
+      if (!analysisPreview) return;
+      analysisPreview.index = Math.min(analysisPreview.moves.length, analysisPreview.index + 1);
+      drawBoard();
+    });
+    results.querySelector('#variationClose')?.addEventListener('click', () => { analysisPreview = null; drawBoard(); });
   } catch (error) {
     $('#engineStatus').textContent = 'Chưa kết nối được engine';
     showEmpty(`${error.message} Có thể dùng các tab CDB trong lúc này.`, true);
@@ -833,6 +909,8 @@ $('#boardCanvas').addEventListener('click', (event) => {
   if (square) handleSquareClick(Number(square.dataset.row), Number(square.dataset.col));
 });
 document.querySelectorAll('.tab').forEach((button) => button.addEventListener('click', () => {
+  analysisPreview = null;
+  drawBoard();
   document.querySelector('.tab.active')?.classList.remove('active');
   button.classList.add('active');
   mode = button.dataset.mode;
