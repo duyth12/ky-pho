@@ -41,10 +41,12 @@ If a CDB request times out, the app did not receive a response from the remote d
 
 Choose **Engine** and click **Phân tích bằng engine**. Fairy-Stockfish NNUE WebAssembly v1.1.12 is bundled under `public/vendor/fairy-stockfish/`, so the engine is ready when the app files are downloaded; first use does not need a CDN or Internet connection. It analyzes the current position in the browser at depth 12 with up to three principal variations. The board position stays on the user's machine.
 
-The best move explanation now separates observable board effects (captures, checks, newly attacked pieces, and whether the moved piece is left under attack) from the engine's projected line and score. After each played move, history also shows the score change from the mover's point of view. These are calculated study cues; the engine's score is its own evaluation scale, not a win probability or a complete human explanation of positional ideas.
+The best move explanation separates observable board effects (captures, checks, newly attacked pieces, and whether the moved piece is left under attack) from the engine's projected line and score. After each played move, history compares the resulting score with the engine's best choice before the move, then shows the estimated score loss, a concrete board effect, a better alternative when the engine finds one, and a short reference line. The comparison uses a quick depth 8 search, so treat close scores as approximate study guidance rather than a referee's verdict.
+
+Each engine principal variation has **Xem từng nước trên bàn cờ**. Use **Tiếp** and **Lùi** to step through the line. The board is temporarily shown in preview mode; click **Đóng biến** to return to the game position. Previewing does not add moves to the game history.
 
 The engine is distributed under GPL-3.0. The license and authors list are included beside the engine files. Upstream source: <https://github.com/fairy-stockfish/fairy-stockfish.wasm>.
 
 ## Learning roadmap
 
-Next learning features should focus on position-aware explanations (threats, loose pieces, checks, and tactical motifs), guided hint levels, and saved games with puzzles and progress tracking.
+The next learning steps are guided tactics puzzles, saved games with notes, and progress tracking. The engine's explanation does not yet cover every positional idea or tactical motif, so compare its suggested line with the board and use close evaluations as a guide rather than certainty.
